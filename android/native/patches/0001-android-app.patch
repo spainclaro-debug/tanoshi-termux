@@ -1,0 +1,141 @@
+--- a/crates/tanoshi-vm/src/extension/manager.rs
++++ b/crates/tanoshi-vm/src/extension/manager.rs
+@@ -379,13 +379,40 @@
+         Ok(source_path.parent().unwrap_or(&self.dir).join(name))
+     }
+ 
++    /// Directory extension shared objects are loaded from.
++    ///
++    /// The Android app bundles the plugins in the APK's `jniLibs` so that the
++    /// installer extracts them into the read-only native library directory.
++    /// Android 10+ forbids loading executable code from app-writable storage,
++    /// so on Android the load directory is overridden to nativeLibraryDir while
++    /// [PluginManager::dir] keeps pointing at the writable data directory used
++    /// for extension preferences.
++    fn plugin_load_dir(&self) -> PathBuf {
++        #[cfg(target_os = "android")]
++        if let Some(dir) = std::env::var_os("TANOSHI_PLUGIN_LOAD_DIR") {
++            return PathBuf::from(dir);
++        }
++        self.dir.clone()
++    }
++
+     fn stage_library(&self, plugin_path: &Path) -> Result<PathBuf> {
+-        let staged_path = self.unique_managed_path(plugin_path, STAGED_LIBRARY_PREFIX)?;
+-        if let Err(error) = std::fs::copy(plugin_path, &staged_path) {
+-            let _ = std::fs::remove_file(&staged_path);
+-            return Err(error.into());
++        // On Android the plugins live in a read-only directory, so they are
++        // loaded in place: copying one into the writable data directory would
++        // produce a library the dynamic linker refuses to map.
++        #[cfg(target_os = "android")]
++        {
++            return Ok(plugin_path.to_path_buf());
++        }
++
++        #[cfg(not(target_os = "android"))]
++        {
++            let staged_path = self.unique_managed_path(plugin_path, STAGED_LIBRARY_PREFIX)?;
++            if let Err(error) = std::fs::copy(plugin_path, &staged_path) {
++                let _ = std::fs::remove_file(&staged_path);
++                return Err(error.into());
++            }
++            Ok(staged_path)
+         }
+-        Ok(staged_path)
+     }
+ 
+     fn cleanup_managed_file(path: &Path) {
+@@ -953,9 +980,16 @@
+     }
+ 
+     pub async fn load_all(&self) -> Result<()> {
+-        let mut read_dir = tokio::fs::read_dir(&self.dir).await?;
++        let dir = self.plugin_load_dir();
++        let mut read_dir = tokio::fs::read_dir(&dir).await?;
+         while let Some(entry) = read_dir.next_entry().await? {
+             let name = entry.file_name().to_string_lossy().into_owned();
++            // nativeLibraryDir also holds the server executable and libarchive;
++            // they are not Tanoshi extensions.
++            #[cfg(target_os = "android")]
++            if name == "libtanoshi.so" || name == "libarchive.so" {
++                continue;
++            }
+             if name.ends_with(PLUGIN_EXTENSION)
+                 && !is_managed_library_name(&name)
+                 && let Err(e) = self.load(&name).await
+@@ -979,6 +1013,15 @@
+     }
+ 
+     pub async fn install(&self, repo_url: &str, name: &str) -> Result<()> {
++        // The Android build ships plugins inside the read-only APK native
++        // library directory, so runtime installation cannot work (and the
++        // dynamic linker would reject a copy in the writable data directory).
++        #[cfg(target_os = "android")]
++        bail!(
++            "extension installation is not available in the bundled Android app; \
++             all sources are bundled with the APK"
++        );
++
+         let plugin_name = normalize_plugin_name(name);
+         let source_file_url = format!(
+             "{}/{}/{}.{}",
+@@ -1164,12 +1207,20 @@
+             error!("failed to run install_name_tool: {error}");
+         }
+ 
++        // The cleanup path is the staged copy on desktop platforms. On Android
++        // the plugin is loaded in place from nativeLibraryDir, which is
++        // read-only and must not be deleted when the worker shuts down.
++        #[cfg(target_os = "android")]
++        let cleanup_path = None;
++        #[cfg(not(target_os = "android"))]
++        let cleanup_path = Some(staged_path.clone());
++
+         let worker = WorkerClient::new(
+             staged_path.clone(),
+             self.worker_path.clone(),
+             self.options.metadata_timeout,
+             self.options.max_concurrent_calls,
+-            Some(staged_path.clone()),
++            cleanup_path,
+         );
+         let (source_info, rustc_version, lib_version) = match worker.start().await {
+             Ok(metadata) => metadata,
+@@ -1227,7 +1278,10 @@
+         let plugin_name = normalize_plugin_name(name);
+         let lifecycle_lock = self.lifecycle_lock(&plugin_name)?;
+         let _lifecycle_guard = lifecycle_lock.lock_owned().await;
+-        let plugin_path = self.dir.join(&plugin_name).with_extension(PLUGIN_EXTENSION);
++        let plugin_path = self
++            .plugin_load_dir()
++            .join(&plugin_name)
++            .with_extension(PLUGIN_EXTENSION);
+         let entry = self
+             .load_worker_from_path(&plugin_path, plugin_path.clone())
+             .await?;
+--- a/crates/tanoshi/bin/tanoshi.rs
++++ b/crates/tanoshi/bin/tanoshi.rs
+@@ -84,10 +84,20 @@
+     let port = config.port;
+     let app = bootstrap::bootstrap(config).await?;
+ 
++    // Upstream always binds 0.0.0.0. The Android app starts the server on
++    // loopback by default and only exposes it on the LAN when the user opts in,
++    // through TANOSHI_BIND=127.0.0.1 (default) or 0.0.0.0.
++    let bind_addr = std::env::var("TANOSHI_BIND")
++        .ok()
++        .and_then(|value| value.parse::<std::net::IpAddr>().ok())
++        .unwrap_or(std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED));
++
+     let telegram_bot_fut: OptionFuture<_> = app.telegram_bot.into();
+-    let server_fut = app.server_builder.serve(([0, 0, 0, 0], port));
++    let server_fut = app
++        .server_builder
++        .serve(std::net::SocketAddr::new(bind_addr, port));
+ 
+-    info!("server listening on port {port}");
++    info!("server listening on {bind_addr}:{port}");
+ 
+     tokio::select! {
+         _ = server_fut => {

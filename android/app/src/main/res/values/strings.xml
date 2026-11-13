@@ -1,0 +1,147 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Tanoshi</string>
+    <string name="notification_channel_name">Tanoshi server</string>
+    <string name="notification_channel_description">Keeps the local Tanoshi manga server running.</string>
+    <string name="notification_title">Tanoshi server</string>
+    <string name="notification_starting">Starting server…</string>
+    <string name="notification_running">Running on port %1$d</string>
+    <string name="notification_stopping">Stopping server…</string>
+    <string name="notification_stopped">Server stopped</string>
+    <string name="notification_action_stop">Stop server</string>
+    <string name="notification_action_open">Open</string>
+
+    <!-- Bottom navigation -->
+    <string name="nav_server">Server</string>
+    <string name="nav_logs">Logs</string>
+    <string name="nav_settings">Settings</string>
+
+    <!-- Server dashboard -->
+    <string name="server_title">Tanoshi</string>
+    <string name="server_subtitle">Local manga server</string>
+    <string name="server_start">Start server</string>
+    <string name="server_stop">Stop server</string>
+    <string name="server_starting">Starting…</string>
+    <string name="server_stopping">Stopping…</string>
+    <string name="server_open_in_browser">Open in browser</string>
+    <string name="server_open_in_app">Open in app</string>
+    <string name="server_url_label">Server URL</string>
+    <string name="server_copy_url">Copy URL</string>
+    <string name="server_url_copied">Server URL copied to the clipboard</string>
+    <string name="server_no_browser">No app on this device can open the server URL</string>
+    <string name="server_error_title">Server error</string>
+    <string name="server_error_unknown">The server stopped unexpectedly. Check the logs for the exact error.</string>
+    <string name="server_view_logs">View logs</string>
+    <string name="server_hint_stopped">Start the server, then open the web UI to set up sources and download manga.</string>
+    <string name="server_start_failed">Could not start the server: %1$s</string>
+    <string name="server_stop_failed">Could not stop the server: %1$s</string>
+    <string name="server_lan_title">Exposed on the local network</string>
+    <string name="server_lan_body">The server is bound to 0.0.0.0 and speaks plain HTTP. Anyone on your Wi-Fi network can reach it. Turn off Expose on LAN in Settings when you do not need it.</string>
+    <string name="server_lan_url">From another device: %1$s</string>
+
+    <!-- Server status card -->
+    <string name="status_stopped">Stopped</string>
+    <string name="status_starting">Starting…</string>
+    <string name="status_running">Running</string>
+    <string name="status_stopping">Stopping…</string>
+    <string name="status_error">Error</string>
+    <string name="status_pid">PID</string>
+    <string name="status_port">Port</string>
+    <string name="status_bind">Bind address</string>
+    <string name="status_uptime">Uptime</string>
+    <string name="status_value_none">—</string>
+
+    <!-- Logs screen -->
+    <string name="logs_title">Logs</string>
+    <string name="logs_follow">Follow output</string>
+    <string name="logs_clear">Clear</string>
+    <string name="logs_copy_all">Copy all</string>
+    <string name="logs_empty">No output yet. Start the server and its log will appear here.</string>
+    <string name="logs_cleared">Logs cleared</string>
+    <plurals name="logs_line_count">
+        <item quantity="one">%1$d line</item>
+        <item quantity="other">%1$d lines</item>
+    </plurals>
+    <plurals name="logs_copied">
+        <item quantity="one">Copied %1$d line to the clipboard</item>
+        <item quantity="other">Copied %1$d lines to the clipboard</item>
+    </plurals>
+
+    <!-- Settings screen -->
+    <string name="settings_title">Settings</string>
+    <string name="settings_section_server">Server</string>
+    <string name="settings_section_network">Network</string>
+    <string name="settings_section_config">Configuration</string>
+    <string name="settings_section_permissions">Permissions</string>
+    <string name="settings_section_storage">Storage</string>
+    <string name="settings_port_label">Port</string>
+    <string name="settings_port_support">Between 1024 and 65535. The default is 8080.</string>
+    <string name="settings_port_invalid">Enter a port between 1024 and 65535</string>
+    <string name="settings_port_save">Save port</string>
+    <string name="settings_port_saved">Port saved. Restart the server to apply it.</string>
+    <string name="settings_port_save_failed">Could not save the port: %1$s</string>
+    <string name="settings_expose_lan">Expose on LAN</string>
+    <string name="settings_expose_lan_support">Bind to 0.0.0.0 so other devices on your Wi-Fi can connect.</string>
+    <string name="settings_expose_lan_warning">The Tanoshi web UI uses plain HTTP with no extra encryption. Only enable this on a network you trust.</string>
+    <string name="settings_lan_saved">Saved. Restart the server to apply the new bind address.</string>
+    <string name="settings_lan_saved_idle">Saved. The new bind address is used the next time the server starts.</string>
+    <string name="settings_config_edit">View or edit config.yml</string>
+    <string name="settings_config_support">Changes are written to config.yml. Restart the server to apply them.</string>
+    <string name="settings_config_title">config.yml</string>
+    <string name="settings_config_loading">Loading config.yml…</string>
+    <string name="settings_config_missing">config.yml does not exist yet. Start the server once to generate it.</string>
+    <string name="settings_config_save">Save</string>
+    <string name="settings_config_cancel">Cancel</string>
+    <string name="settings_config_saved">config.yml saved. Restart the server to apply the changes.</string>
+    <string name="settings_config_invalid">Could not save config.yml: %1$s</string>
+    <string name="settings_notifications">Notifications</string>
+    <string name="settings_notifications_support">A persistent notification keeps the server alive in the background.</string>
+    <string name="settings_notifications_granted">Allowed</string>
+    <string name="settings_notifications_denied">Not allowed. The server notification cannot be shown until this is enabled.</string>
+    <string name="settings_notifications_not_needed">This Android version does not need a notification permission.</string>
+    <string name="settings_notifications_request">Allow notifications</string>
+    <string name="settings_notifications_open">Open notification settings</string>
+    <string name="settings_notification_granted_toast">Notification permission granted</string>
+    <string name="settings_notification_denied_toast">Notification permission denied</string>
+    <string name="settings_battery">Battery optimisation</string>
+    <string name="settings_battery_ignored">Battery optimisation is off, so Android should keep the server running.</string>
+    <string name="settings_battery_optimised">Android may stop the server in the background. Disable battery optimisation for this app.</string>
+    <string name="settings_battery_action">Ignore battery optimisations</string>
+    <string name="settings_battery_already">Already allowed</string>
+    <string name="settings_storage_data_dir">Data directory</string>
+    <string name="settings_storage_log_file">Server log</string>
+    <string name="settings_copy_path">Copy path</string>
+    <string name="settings_path_copied">Path copied to the clipboard</string>
+    <string name="settings_version">Version %1$s</string>
+    <string name="settings_could_not_open">Could not open the system settings screen on this device</string>
+    <string name="settings_unknown_error">unknown error</string>
+
+    <!-- First-run admin onboarding -->
+    <string name="admin_title">Create admin account</string>
+    <string name="admin_body">This server has no users yet. Create the first admin account to protect the web UI.</string>
+    <string name="admin_checking">Checking the server…</string>
+    <string name="admin_username">Username</string>
+    <string name="admin_password">Password</string>
+    <string name="admin_create">Create account</string>
+    <string name="admin_creating">Creating account…</string>
+    <string name="admin_skip">Skip - I will register in the browser</string>
+    <string name="admin_created">Admin account created. Sign in from the web UI.</string>
+    <string name="admin_skipped">You can create the first account from the web UI.</string>
+    <string name="admin_error_username">Username must be at least 3 characters.</string>
+    <string name="admin_error_password">Password must be at least 8 characters.</string>
+    <string name="admin_error_generic">Could not create the admin account. Check the server log for details.</string>
+
+    <!-- In-app web UI -->
+    <string name="browser_title">Tanoshi web UI</string>
+    <string name="browser_back">Back</string>
+    <string name="browser_reload">Reload</string>
+    <string name="browser_not_running_title">Server is not running</string>
+    <string name="browser_not_running_body">Start the server to open the Tanoshi web UI.</string>
+    <string name="browser_go_back">Go back</string>
+    <string name="browser_load_error">Could not load the web UI: %1$s</string>
+    <string name="browser_retry">Retry</string>
+
+    <!-- One-shot notification permission prompt -->
+    <string name="notification_permission_granted">Notifications enabled</string>
+    <string name="notification_permission_denied">Notifications are disabled. The server notification will not be shown.</string>
+</resources>

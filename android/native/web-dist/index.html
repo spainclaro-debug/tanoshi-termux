@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="utf-8" />
+    <meta name="Description" content="Tanoshi: Selfhosted web manga reader">
+    <title>Tanoshi</title>
+    <meta charset="utf-8">
+    
+<script type="module">
+import init, * as bindings from '/tanoshi-web-3e0921a641e4b489.js';
+const wasm = await init({ module_or_path: '/tanoshi-web-76e05a42281e648e_bg.wasm' });
+
+
+window.wasmBindings = bindings;
+
+
+dispatchEvent(new CustomEvent("TrunkApplicationStarted", {detail: {wasm}}));
+
+</script>
+    
+    
+    
+    
+    
+    <link rel="stylesheet" href="/styles-55373effc47aaa46.css" integrity="sha384-24Ckq2gTSipe6KPo4aY1pDSsDbTTLeMJKfkGHe7qiOhGIU2tB1vjjsDJR1BkKOy7"/>
+    <link rel="manifest" href="/manifest.webmanifest">
+    <link rel='icon' href='/icons/tanoshi.png' type='image/png' />
+    <link rel="stylesheet" href="/animate.min.css" />
+    <meta name="viewport"
+        content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=0, viewport-fit=cover">
+    <link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <!-- <meta name="apple-mobile-web-app-status-bar-style" content="default"/> -->
+    <meta name="theme-color" content="#5b749b">
+<link rel="modulepreload" href="/tanoshi-web-3e0921a641e4b489.js" crossorigin="anonymous" integrity="sha384-4gPm9SfV9/C3YAZqOEWc3Y5Cogd6N98tdmcFv8OMabaIteW0VNuqtMFeDQbR479s"><link rel="preload" href="/tanoshi-web-76e05a42281e648e_bg.wasm" crossorigin="anonymous" integrity="sha384-7MniR38HkuRkQHhZZT5m8nEgeGhWwpZbYliMn63I+/1STA5ckTm3Wj9UmI+x2egl" as="fetch" type="application/wasm"></head>
+
+<body>
+    <noscript>
+        <p>Enable javascript to use <a href="https://github.com/luigi311/tanoshi">tanoshi</a></p>
+    </noscript>
+    <script>
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js');
+        }
+    </script>
+</body>
+
+</html>

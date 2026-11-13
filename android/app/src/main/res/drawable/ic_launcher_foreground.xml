@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Simple open-book glyph. -->
+    <path
+        android:fillColor="#E8B84B"
+        android:pathData="M54,32 C46,26 34,24 26,26 L26,78 C34,76 46,78 54,84 L54,32 Z" />
+    <path
+        android:fillColor="#F5F1E6"
+        android:pathData="M54,32 C62,26 74,24 82,26 L82,78 C74,76 62,78 54,84 L54,32 Z" />
+    <path
+        android:fillColor="#1B2430"
+        android:pathData="M54,34 L54,82"
+        android:strokeWidth="2"
+        android:strokeColor="#1B2430" />
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M33,40 L47,42 M33,48 L47,50 M33,56 L47,58 M61,42 L75,40 M61,50 L75,48 M61,58 L75,56"
+        android:strokeWidth="2.4"
+        android:strokeColor="#1B2430" />
+</vector>

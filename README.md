@@ -9,6 +9,26 @@ and the patch set needed to rebuild everything on Termux.
 
 ---
 
+## Android app (no Termux)
+
+A standalone Android app lives in [`android/`](android/README.md). It bundles
+the same Tanoshi server and the same nine extensions as a single sideloadable
+APK — no Termux, no shell — and runs the server from a foreground service with
+an in-app web UI.
+
+- **No default account:** the app creates no administrator; you register the
+  first admin on first run.
+- **arm64 only:** Android 8.0+ (API 26) on an arm64 / aarch64 device.
+- **Docs:** [`android/README.md`](android/README.md) covers building,
+  sideloading, first-run onboarding, settings and troubleshooting; the native
+  rebuild pipeline is in
+  [`android/native/README.md`](android/native/README.md).
+
+The Termux package documented below and the APK project in `android/` are two
+independent ways to run the same server.
+
+---
+
 ## Default login
 
 After installation the server has one account:

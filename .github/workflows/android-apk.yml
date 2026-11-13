@@ -1,0 +1,84 @@
+name: Android APK
+
+# Builds the sideloadable arm64-v8a debug APK of the standalone Tanoshi
+# Android app (no Termux), uploads it as a workflow artifact and, for
+# Android release tags (android-v*), attaches it to the matching GitHub
+# release. The Termux package uses v* tags (e.g. v0.40.0-termux.3) for its own
+# releases; those still trigger a build but never publish an Android release,
+# so the two release trains cannot collide.
+#
+# The native binaries under android/app/src/main/jniLibs/arm64-v8a/ are
+# prebuilt and committed to the repository, so this workflow only runs the
+# Gradle app build - it does not need the Rust or Android NDK toolchains.
+# To rebuild the native pieces, see android/native/README.md.
+
+on:
+  push:
+    branches:
+      - "**"
+    tags:
+      - "v*"
+      - "android-v*"
+    paths:
+      - "android/**"
+      - ".github/workflows/android-apk.yml"
+  pull_request:
+    paths:
+      - "android/**"
+      - ".github/workflows/android-apk.yml"
+  workflow_dispatch:
+
+# softprops/action-gh-release needs write access to create or update the
+# release that holds the APK for tag builds.
+permissions:
+  contents: write
+
+jobs:
+  build-debug-apk:
+    name: Build debug APK (arm64-v8a)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK platform and build tools
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build debug APK
+        working-directory: android
+        run: |
+          chmod +x ./gradlew
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: tanoshi-android-debug-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      # Android releases are tagged android-v* (e.g. android-v0.1.0). Plain
+      # v* tags belong to the Termux package releases and are left untouched.
+      - name: Attach APK to GitHub release
+        if: startsWith(github.ref, 'refs/tags/android-v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: android/app/build/outputs/apk/debug/app-debug.apk
+          fail_on_unmatched_files: true
