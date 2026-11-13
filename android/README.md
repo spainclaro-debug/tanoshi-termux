@@ -131,16 +131,19 @@ dependencies; later builds are cached. Other useful tasks:
 ### CI
 
 [`.github/workflows/android-apk.yml`](../.github/workflows/android-apk.yml)
-builds `:app:assembleDebug` on every push/PR that touches `android/**` or the
-workflow, and on manual dispatch. It installs JDK 17 (Temurin), the Android SDK
-with `platforms;android-35` and `build-tools;35.0.0`, runs Gradle with the
-wrapper, and uploads the APK as the **`tanoshi-android-debug-apk`** artifact.
+builds `:app:assembleDebug` on every push, on pull requests that touch
+`android/**` or the workflow, and on manual dispatch. It installs JDK 17
+(Temurin) and the Android SDK packages `platforms;android-35` and
+`build-tools;35.0.0` with `sdkmanager`, runs Gradle with the wrapper, and
+uploads the APK as the **`tanoshi-android-debug-apk`** artifact. No third-party
+Android setup/release actions are used: the SDK is provisioned with
+`sdkmanager` and releases are published with the preinstalled GitHub CLI.
 
 Android releases use tags of the form **`android-v*`** (for example
-`android-v0.1.0`), and for those tags the same APK is attached to the GitHub
-release with `softprops/action-gh-release@v2`. Plain `v*` tags belong to the
-Termux package releases (`v0.40.0-termux.3`, …): they still trigger a build
-but never publish an Android release, so the two release trains cannot collide.
+`android-v0.1.0`), and for those tags the same APK is attached to a new GitHub
+release. The `v*` tags that belong to the Termux package releases
+(`v0.40.0-termux.3`, …) do not trigger this workflow, so the two release trains
+cannot collide.
 
 ---
 

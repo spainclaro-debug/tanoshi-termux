@@ -1,35 +1,32 @@
 name: Android APK
 
-# Builds the sideloadable arm64-v8a debug APK of the standalone Tanoshi
-# Android app (no Termux), uploads it as a workflow artifact and, for
-# Android release tags (android-v*), attaches it to the matching GitHub
-# release. The Termux package uses v* tags (e.g. v0.40.0-termux.3) for its own
-# releases; those still trigger a build but never publish an Android release,
-# so the two release trains cannot collide.
+# Builds the sideloadable arm64-v8a debug APK of the standalone Tanoshi Android
+# app (no Termux), uploads it as a workflow artifact and, for Android release
+# tags (android-v*), publishes it on a GitHub release. Termux package releases
+# use v* tags and are not touched by this workflow.
 #
 # The native binaries under android/app/src/main/jniLibs/arm64-v8a/ are
-# prebuilt and committed to the repository, so this workflow only runs the
-# Gradle app build - it does not need the Rust or Android NDK toolchains.
-# To rebuild the native pieces, see android/native/README.md.
+# prebuilt and committed, so this workflow only runs the Gradle app build - it
+# needs no Rust or Android NDK toolchain. To rebuild the native pieces, see
+# android/native/README.md.
 
 on:
   push:
     branches:
       - "**"
     tags:
-      - "v*"
       - "android-v*"
-    paths:
-      - "android/**"
-      - ".github/workflows/android-apk.yml"
   pull_request:
     paths:
       - "android/**"
       - ".github/workflows/android-apk.yml"
   workflow_dispatch:
 
-# softprops/action-gh-release needs write access to create or update the
-# release that holds the APK for tag builds.
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+# Publishing a release needs write access to the repository contents.
 permissions:
   contents: write
 
@@ -49,16 +46,20 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
       - name: Install Android SDK platform and build tools
+        shell: bash
         run: |
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager --install "platforms;android-35" "build-tools;35.0.0"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
+          set -euo pipefail
+          SDK_ROOT="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-/usr/local/lib/android/sdk}}"
+          SDKMANAGER="$SDK_ROOT/cmdline-tools/latest/bin/sdkmanager"
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(ls -d "$SDK_ROOT"/cmdline-tools/*/bin/sdkmanager 2>/dev/null | head -1)"
+          fi
+          echo "using sdkmanager: $SDKMANAGER"
+          yes | "$SDKMANAGER" --licenses >/dev/null 2>&1 || true
+          "$SDKMANAGER" --install "platforms;android-35" "build-tools;35.0.0"
+          echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
 
       - name: Build debug APK
         working-directory: android
@@ -74,11 +75,18 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      # Android releases are tagged android-v* (e.g. android-v0.1.0). Plain
-      # v* tags belong to the Termux package releases and are left untouched.
-      - name: Attach APK to GitHub release
+      # Android releases are tagged android-v* (e.g. android-v0.1.0). The
+      # release is created with the preinstalled GitHub CLI so the workflow
+      # needs no third-party release action.
+      - name: Publish Android release
         if: startsWith(github.ref, 'refs/tags/android-v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: android/app/build/outputs/apk/debug/app-debug.apk
-          fail_on_unmatched_files: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release create "$TAG" \
+            android/app/build/outputs/apk/debug/app-debug.apk \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "Tanoshi Android $TAG" \
+            --generate-notes \
+            --notes "Standalone arm64-v8a Android app that bundles and runs the Tanoshi server (no Termux). Debug-signed APK for sideloading: install it and register the first admin account in the app."

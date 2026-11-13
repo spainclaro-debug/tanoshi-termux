@@ -487,6 +487,10 @@ class TanhoshiService : Service() {
         environment["HOME"] = filesDir.absolutePath
         environment["TANOSHI_LOG"] = "info"
         environment["TANOSHI_BIND"] = bindAddress
+        // The patched Android build loads the extension plugins from this
+        // read-only directory (nativeLibraryDir); plugin_path in config.yml
+        // stays writable for extension preferences.
+        environment["TANOSHI_PLUGIN_LOAD_DIR"] = nativeLibraryDir.absolutePath
         environment["LD_LIBRARY_PATH"] = buildLibraryPath(nativeLibraryDir)
         environment["TMPDIR"] = cacheDir.absolutePath
         environment["RUST_BACKTRACE"] = "1"
