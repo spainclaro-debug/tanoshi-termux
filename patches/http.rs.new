@@ -1,0 +1,42 @@
+//! Platform-specific HTTP client construction.
+//!
+//! All outgoing HTTPS traffic on Android/Termux must avoid
+//! `rustls-platform-verifier`: that backend loads the system trust store through
+//! the Android Java runtime, and its `verify_certificate` panics with
+//! `Expect rustls-platform-verifier to be initialized` when that runtime is not
+//! available (the normal case for a Termux CLI/server process). reqwest selects
+//! that verifier by default, so every client used by the server is built here
+//! against the bundled Mozilla (webpki) roots on Android only.
+//!
+//! On every other platform these helpers return the builder untouched, keeping
+//! the upstream behaviour (native/platform verifier) unchanged.
+
+/// Start a client builder with the platform-appropriate TLS backend.
+pub fn client_builder() -> reqwest::ClientBuilder {
+    with_platform_tls(reqwest::Client::builder())
+}
+
+/// Send a one-off GET request using a platform-appropriate client.
+///
+/// Equivalent to `reqwest::get`, but safe on Android where the default verifier
+/// is unavailable.
+pub async fn get(url: impl reqwest::IntoUrl) -> reqwest::Result<reqwest::Response> {
+    client_builder().build()?.get(url).send().await
+}
+
+#[cfg(not(target_os = "android"))]
+fn with_platform_tls(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    builder
+}
+
+#[cfg(target_os = "android")]
+fn with_platform_tls(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+
+    let config = rustls::ClientConfig::builder()
+        .with_root_certificates(roots)
+        .with_no_client_auth();
+
+    builder.tls_backend_preconfigured(config)
+}

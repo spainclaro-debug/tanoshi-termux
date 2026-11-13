@@ -4,15 +4,17 @@ A self-contained, ready-to-run build of [Tanoshi](https://github.com/luigi311/ta
 — a self-hosted web manga reader — packaged for **Termux on Android (arm64)**.
 
 Upstream ships no Android binary (only glibc Linux, Windows and macOS), so this
-package contains a native `aarch64` Android build plus nine source extensions,
+package contains a native `aarch64` Android build with ten source extensions,
 and the patch set needed to rebuild everything on Termux.
 
 ## Download
 
 | File | Size | Description |
 | --- | --- | --- |
-| [`tanoshi-termux-aarch64.tar.gz`](./tanoshi-termux-aarch64.tar.gz) | 46 MB | The complete package |
-| [`tanoshi-termux-aarch64.tar.gz.sha256`](./tanoshi-termux-aarch64.tar.gz.sha256) | — | Checksum for verifying the download |
+| [`tanoshi-termux-aarch64.tar.gz`](./tanoshi-termux-aarch64.tar.gz) | 47 MB | The complete package |
+| [`tanoshi-termux-aarch64.tar.gz.sha256`](./tanoshi-termux-aarch64.tar.gz.sha256) | — | Checksum |
+
+Newest build: see [Releases](https://github.com/spainclaro-debug/tanoshi-termux/releases).
 
 ```bash
 # download, verify, extract, install
@@ -21,6 +23,29 @@ curl -LO https://github.com/spainclaro-debug/tanoshi-termux/raw/main/tanoshi-ter
 sha256sum -c tanoshi-termux-aarch64.tar.gz.sha256
 tar -xzf tanoshi-termux-aarch64.tar.gz && cd tanoshi && bash install.sh
 ```
+
+### Updating an existing install
+
+```bash
+cd tanoshi && bash selfupdate.sh      # pulls the newest release from this repo
+```
+
+## Repository layout
+
+The scripts, extension sources and patches are committed here as plain files so
+they can be read and diffed. The heavy artifacts — the server binary, the
+compiled plugins and the upstream Tanoshi source — are only inside
+`tanoshi-termux-aarch64.tar.gz` and the release assets, which keeps this
+repository small:
+
+| Path | What it is |
+| --- | --- |
+| `install.sh`, `update.sh`, `selfupdate.sh`, `reinstall.sh`, `uninstall.sh` | maintenance scripts |
+| `lib/` | shared shell helpers and the rebuild routine |
+| `extensions/` | the five Rust extension ports |
+| `patches/` | Android patches and their documentation |
+| `vendor/` | patched `compress-tools` crate |
+| `VERSION` / `LIB_VERSION` / `PACKAGE_TAG` | Tanoshi, tanoshi-lib and package versions |
 
 ---
 
@@ -126,7 +151,8 @@ Other maintenance scripts in the same folder:
 
 | Script | Purpose |
 | --- | --- |
-| `bash update.sh` | update to the newest upstream release |
+| `bash selfupdate.sh` | update from the newest **prebuilt package** in this project's GitHub repo (fast, no toolchain) |
+| `bash update.sh` | rebuild from the newest **upstream Tanoshi release** (needs the Rust toolchain) |
 | `bash reinstall.sh` | repair the install (keeps data) |
 | `bash uninstall.sh` | remove Tanoshi (backs up data first) |
 | `bash install.sh` | (re)run setup |
@@ -149,8 +175,10 @@ tanoshi/
 ├── patches/             # Android patches + vendored patches
 ├── vendor/              # patched compress-tools crate
 ├── install.sh           # setup script
-├── update.sh            # updater
+├── update.sh            # rebuild from upstream source
+├── PACKAGE_TAG          # which prebuilt package this is
 ├── reinstall.sh         # repair an install, keep or reset data
+├── selfupdate.sh        # update from this project's GitHub releases
 ├── uninstall.sh         # remove Tanoshi (backs up data first)
 └── tanoshi.sh           # service control
 ```
@@ -171,6 +199,47 @@ Android's Wi-Fi settings.
 ---
 
 ## Updating
+
+There are two updaters. Use **selfupdate.sh** unless you specifically want to
+build Tanoshi yourself.
+
+### From the prebuilt package (recommended)
+
+Pulls the newest package published in
+[spainclaro-debug/tanoshi-termux](https://github.com/spainclaro-debug/tanoshi-termux),
+verifies its checksum and applies it. No Rust toolchain needed, takes seconds.
+
+```bash
+cd tanoshi
+bash selfupdate.sh --check    # is there a newer package?
+bash selfupdate.sh            # download, verify and install it
+bash selfupdate.sh --rollback # undo the last package update
+```
+
+How it works:
+
+1. Asks the GitHub API for the newest release in this project's repo, and
+   compares its tag (`v0.40.0-termux.2`) with the local `PACKAGE_TAG`. A release
+   is never applied backwards.
+2. Downloads the archive and its `.sha256`, and **refuses to install on a
+   checksum mismatch**.
+3. Extracts to a temporary directory and checks it really contains
+   `bin/tanoshi` and `plugins/`.
+4. Backs up the current binary and plugins to `backups/selfupdate-<timestamp>/`
+   (five newest kept).
+5. Swaps in the new binary, plugins and helper scripts. Plugins the new package
+   no longer ships are removed; runtime scratch files are cleared.
+6. Repairs `config.yml` if needed, restarts and reports how many plugins loaded.
+
+Your `data/` directory — library, accounts, history, downloads — is **never
+touched**. Only program files are replaced.
+
+If the API rate-limits you, wait an hour and retry; the script also falls back
+to the archive committed in the repository if a release has no assets.
+
+### From upstream source (rebuild)
+
+Use this to follow upstream Tanoshi itself rather than this package:
 
 ```bash
 cd tanoshi
@@ -222,7 +291,7 @@ bash install.sh --with-build-tools
 
 ## Extensions
 
-Nine sources are bundled and load automatically:
+Ten sources are bundled and load automatically:
 
 | Extension | Language | Notes |
 | --- | --- | --- |
@@ -235,6 +304,7 @@ Nine sources are bundled and load automatically:
 | **QiScans** | en | ported from Keiyoushi |
 | **Manga Ball** | en | ported from Keiyoushi; English chapters only |
 | **MadaraDex** | en | ported from Keiyoushi |
+| **HentaiNexus** | en | ported from Keiyoushi; NSFW; one chapter per gallery |
 
 The last four are **Rust ports of [Keiyoushi](https://github.com/keiyoushi/extensions)
 (Tachiyomi) extensions**, rewritten against Tanoshi's plugin API. Their sources

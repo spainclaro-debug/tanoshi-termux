@@ -1,0 +1,71 @@
+name: CI - macOS - aarch64
+
+on:
+  push:
+    branches:
+      - master
+      - feature-*
+      - issue-*
+  pull_request:
+
+jobs:
+  build_and_test:
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - 1.82.0 # MSRV
+          - stable
+          - nightly
+
+    name: Test ${{ matrix.version }} - aarch64-apple-darwin
+    runs-on: macOS-latest
+
+    steps:
+      - name: Install Dependencies
+        run: |
+          brew install pkgconfig
+          brew install libarchive libb2 lz4 zstd xz bzip2 zlib libxml2
+          # Collect pkg-config dirs for keg-only formulae plus libarchive.
+          PKG_CONFIG_PATHS=""
+          for formula in libarchive bzip2 zlib libxml2; do
+            pcdir="$(brew --prefix "$formula")/lib/pkgconfig"
+            if [ -d "$pcdir" ]; then
+              PKG_CONFIG_PATHS="${PKG_CONFIG_PATHS:+$PKG_CONFIG_PATHS:}$pcdir"
+            fi
+          done
+          echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATHS" >> "$GITHUB_ENV"
+      - name: Checkout sources
+        uses: actions/checkout@v6
+      - name: Install stable toolchain (MSRV-aware lockfile resolution)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Generate Cargo.lock
+        run: cargo generate-lockfile
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
+      - name: Install ${{ matrix.version }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.version }}
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ${{ matrix.version }}-aarch64-apple-darwin-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo index
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/git
+          key: ${{ matrix.version }}-aarch64-apple-darwin-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo build
+        uses: actions/cache@v5
+        with:
+          path: target
+          key: ${{ matrix.version }}-aarch64-apple-darwin-cargo-build-trimmed-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check build
+        run: cargo check --release --all --bins --examples --tests
+
+      - name: Tests
+        timeout-minutes: 10
+        run: cargo test --release --all --all-features --no-fail-fast -- --nocapture

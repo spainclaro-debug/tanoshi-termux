@@ -1,0 +1,91 @@
+name: CI - Windows - x86_64
+
+on:
+  push:
+    branches:
+      - master
+      - feature-*
+      - issue-*
+  pull_request:
+
+jobs:
+  build_and_test:
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - 1.82.0 # MSRV
+          - stable
+          - nightly
+        linkage:
+          - x64-windows
+          - x64-windows-static
+
+    name: Test ${{ matrix.version }} ${{ matrix.linkage }} - x86_64-pc-windows-msvc
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v6
+
+      - name: Cache vcpkg installed
+        uses: actions/cache@v5
+        with:
+          path: $VCPKG_ROOT/installed
+          key: ${{ runner.os }}-vcpkg-cache-${{ matrix.linkage }}
+        env:
+          VCPKG_ROOT: 'C:\vcpkg'
+
+      - name: Cache vcpkg downloads
+        uses: actions/cache@v5
+        with:
+          path: $VCPKG_ROOT/downloads
+          key: ${{ runner.os }}-vcpkg-cache-${{ matrix.linkage }}
+        env:
+          VCPKG_ROOT: 'C:\vcpkg'
+
+      - name: Install dependencies Windows
+        run: vcpkg integrate install; vcpkg install libarchive:${{ matrix.linkage }}
+        env:
+          VCPKG_ROOT: 'C:\vcpkg'
+
+      - name: Install stable toolchain (MSRV-aware lockfile resolution)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Generate Cargo.lock
+        run: cargo generate-lockfile
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
+      - name: Install ${{ matrix.version }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.version }}
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ${{ matrix.version }}-x86_64-pc-windows-msvc-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo index
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/git
+          key: ${{ matrix.version }}-x86_64-pc-windows-msvc-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo build
+        uses: actions/cache@v5
+        with:
+          path: target
+          key: ${{ matrix.version }}-x86_64-pc-windows-msvc-cargo-build-trimmed-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check build
+        env:
+          RUSTFLAGS: ${{ matrix.linkage == 'x64-windows-static' && '-C target-feature=+crt-static' || '' }}
+          VCPKGRS_DYNAMIC: ${{ matrix.linkage == 'x64-windows' && 1 || 0 }}
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.linkage }}
+        run: cargo check --release --all --bins --examples --tests
+
+      - name: Test
+        timeout-minutes: 10
+        env:
+          RUSTFLAGS: ${{ matrix.linkage == 'x64-windows-static' && '-C target-feature=+crt-static' || '' }}
+          VCPKGRS_DYNAMIC: ${{ matrix.linkage == 'x64-windows' && 1 || 0 }}
+          VCPKG_DEFAULT_TRIPLET: ${{ matrix.linkage }}
+        run: cargo test --release --all --all-features --no-fail-fast -- --nocapture

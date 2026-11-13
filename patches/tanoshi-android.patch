@@ -1,0 +1,495 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index 6348cc6..16ceba5 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1061,8 +1061,6 @@ dependencies = [
+ [[package]]
+ name = "compress-tools"
+ version = "0.16.1"
+-source = "registry+https://github.com/rust-lang/crates.io-index"
+-checksum = "51fb07cbf6204adb9e71af7b689dc5caeca6147f9d9dd5c8f9ae3447147012c0"
+ dependencies = [
+  "derive_more 2.1.1",
+  "libc",
+@@ -6457,6 +6455,7 @@ dependencies = [
+  "reqwest 0.13.5",
+  "rust-argon2",
+  "rust-embed",
++ "rustls",
+  "serde",
+  "serde_json",
+  "serde_yaml2",
+@@ -6470,6 +6469,7 @@ dependencies = [
+  "tokio",
+  "tokio-stream",
+  "tower-http 0.7.1",
++ "webpki-roots",
+  "zip",
+ ]
+ 
+@@ -6536,9 +6536,11 @@ dependencies = [
+  "chrono",
+  "log",
+  "reqwest 0.13.5",
++ "rustls",
+  "serde",
+  "serde_json",
+  "teloxide",
++ "webpki-roots",
+ ]
+ 
+ [[package]]
+@@ -6560,9 +6562,11 @@ dependencies = [
+  "log",
+  "oauth2",
+  "reqwest 0.13.5",
++ "rustls",
+  "serde",
+  "serde_json",
+  "thiserror 2.0.21",
++ "webpki-roots",
+ ]
+ 
+ [[package]]
+@@ -6587,10 +6591,12 @@ dependencies = [
+  "log",
+  "once_cell",
+  "reqwest 0.13.5",
++ "rustls",
+  "serde",
+  "serde_json",
+  "tanoshi-lib",
+  "tokio",
++ "webpki-roots",
+ ]
+ 
+ [[package]]
+diff --git a/crates/tanoshi-notifier/Cargo.toml b/crates/tanoshi-notifier/Cargo.toml
+index c37d9d5..784f461 100644
+--- a/crates/tanoshi-notifier/Cargo.toml
++++ b/crates/tanoshi-notifier/Cargo.toml
+@@ -22,3 +22,9 @@ reqwest = { version = "0.13", default-features = false, features = [
+ ] }
+ log = { version = "0.4" }
+ async-trait = "0.1"
++
++# Android/Termux: rustls-platform-verifier cannot load the Android system trust
++# store, so notification HTTPS calls use the bundled Mozilla roots instead.
++[target.'cfg(target_os = "android")'.dependencies]
++rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
++webpki-roots = "1"
+diff --git a/crates/tanoshi-notifier/src/gotify.rs b/crates/tanoshi-notifier/src/gotify.rs
+index a451f09..57ad56a 100644
+--- a/crates/tanoshi-notifier/src/gotify.rs
++++ b/crates/tanoshi-notifier/src/gotify.rs
+@@ -11,7 +11,7 @@ pub struct Gotify {
+ impl Gotify {
+     pub fn new(base_url: String) -> Self {
+         Self {
+-            client: reqwest::Client::new(),
++            client: crate::http_client(),
+             base_url,
+         }
+     }
+diff --git a/crates/tanoshi-notifier/src/lib.rs b/crates/tanoshi-notifier/src/lib.rs
+index fcd6580..4556af4 100644
+--- a/crates/tanoshi-notifier/src/lib.rs
++++ b/crates/tanoshi-notifier/src/lib.rs
+@@ -7,6 +7,29 @@ pub mod telegram;
+ 
+ use async_trait::async_trait;
+ 
++/// Build a `reqwest` client with a TLS backend that works on this platform.
++///
++/// Android/Termux cannot use `rustls-platform-verifier` (it needs the Android
++/// Java runtime to load the system trust store, and panics otherwise), so
++/// Android falls back to the bundled Mozilla (webpki) roots. Other platforms
++/// keep reqwest's default backend.
++pub(crate) fn http_client() -> reqwest::Client {
++    #[cfg(not(target_os = "android"))]
++    let builder = reqwest::Client::builder();
++
++    #[cfg(target_os = "android")]
++    let builder = {
++        let mut roots = rustls::RootCertStore::empty();
++        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
++        let config = rustls::ClientConfig::builder()
++            .with_root_certificates(roots)
++            .with_no_client_auth();
++        reqwest::Client::builder().tls_backend_preconfigured(config)
++    };
++
++    builder.build().unwrap_or_default()
++}
++
+ #[async_trait]
+ pub trait Notifier {
+     async fn send_notification(&self, user_key: &str, message: &str) -> Result<(), anyhow::Error>;
+diff --git a/crates/tanoshi-notifier/src/pushover.rs b/crates/tanoshi-notifier/src/pushover.rs
+index ec1b5ab..20640e1 100644
+--- a/crates/tanoshi-notifier/src/pushover.rs
++++ b/crates/tanoshi-notifier/src/pushover.rs
+@@ -45,7 +45,7 @@ pub struct Pushover {
+ 
+ impl Pushover {
+     pub fn new(token: String) -> Pushover {
+-        let client = reqwest::Client::new();
++        let client = crate::http_client();
+         Pushover { client, token }
+     }
+ 
+diff --git a/crates/tanoshi-tracker/Cargo.toml b/crates/tanoshi-tracker/Cargo.toml
+index 0b65bdf..2780da5 100644
+--- a/crates/tanoshi-tracker/Cargo.toml
++++ b/crates/tanoshi-tracker/Cargo.toml
+@@ -24,3 +24,9 @@ reqwest = { version = "0.13", default-features = false, features = [
+ log = { version = "0.4" }
+ async-trait = "0.1"
+ thiserror = "2"
++
++# Android/Termux: rustls-platform-verifier cannot load the Android system trust
++# store, so tracker API calls pin rustls to the bundled Mozilla roots instead.
++[target.'cfg(target_os = "android")'.dependencies]
++rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
++webpki-roots = "1"
+diff --git a/crates/tanoshi-tracker/src/anilist.rs b/crates/tanoshi-tracker/src/anilist.rs
+index 479d8bd..88ff78c 100644
+--- a/crates/tanoshi-tracker/src/anilist.rs
++++ b/crates/tanoshi-tracker/src/anilist.rs
+@@ -11,7 +11,9 @@ use reqwest::StatusCode;
+ use serde::Deserialize;
+ use serde_json::json;
+ 
+-use crate::{oauth_http_client, Error, OAuthClient, Tracker, TrackerManga, TrackerStatus};
++use crate::{
++    api_http_client, oauth_http_client, Error, OAuthClient, Tracker, TrackerManga, TrackerStatus,
++};
+ 
+ use super::{Session, Token};
+ 
+@@ -432,7 +434,7 @@ impl AniList {
+         token: String,
+         body: &serde_json::Value,
+     ) -> Result<serde_json::Value, Error> {
+-        Ok(reqwest::Client::new()
++        Ok(api_http_client()
+             .post("https://graphql.anilist.co/")
+             .bearer_auth(token)
+             .json(body)
+diff --git a/crates/tanoshi-tracker/src/lib.rs b/crates/tanoshi-tracker/src/lib.rs
+index 5e710e3..ed597f5 100644
+--- a/crates/tanoshi-tracker/src/lib.rs
++++ b/crates/tanoshi-tracker/src/lib.rs
+@@ -23,15 +23,54 @@ pub type OAuthClient = oauth2::basic::BasicClient<
+     oauth2::EndpointSet,    // token url
+ >;
+ 
++/// A `reqwest` client for tracker API calls, with a TLS backend that works on
++/// the current platform.
++///
++/// Android/Termux cannot use `rustls-platform-verifier` (it needs the Android
++/// Java runtime to load the system trust store, and panics otherwise), so
++/// Android falls back to the bundled Mozilla (webpki) roots. Other platforms
++/// keep reqwest's default backend.
++pub(crate) fn api_http_client() -> reqwest::Client {
++    #[cfg(not(target_os = "android"))]
++    let builder = reqwest::Client::builder();
++
++    #[cfg(target_os = "android")]
++    let builder = {
++        let mut roots = rustls::RootCertStore::empty();
++        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
++        let config = rustls::ClientConfig::builder()
++            .with_root_certificates(roots)
++            .with_no_client_auth();
++        reqwest::Client::builder().tls_backend_preconfigured(config)
++    };
++
++    builder.build().unwrap_or_default()
++}
++
+ /// Build the http client used for token exchanges. Redirects are disabled as
+ /// recommended by oauth2 to prevent SSRF via the token endpoint, and a total
+ /// timeout keeps a stalled token endpoint from hanging exchanges forever.
+ fn oauth_http_client() -> Result<oauth2::reqwest::Client, Error> {
+-    Ok(oauth2::reqwest::ClientBuilder::new()
++    let builder = oauth2::reqwest::ClientBuilder::new()
+         .redirect(oauth2::reqwest::redirect::Policy::none())
+-        .timeout(std::time::Duration::from_secs(30))
+-        .build()
+-        .map_err(|e| anyhow::anyhow!("{e}"))?)
++        .timeout(std::time::Duration::from_secs(30));
++
++    #[cfg(not(target_os = "android"))]
++    let builder = builder;
++
++    // The token endpoint is https, so it needs a usable verifier on Android too.
++    #[cfg(target_os = "android")]
++    let builder = {
++        let mut roots = rustls::RootCertStore::empty();
++        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
++        let config: rustls::ClientConfig = rustls::ClientConfig::builder()
++            .with_root_certificates(roots)
++            .with_no_client_auth();
++        // oauth2 v5 re-exports reqwest 0.12's builder, where this is the API.
++        builder.use_preconfigured_tls(config)
++    };
++
++    Ok(builder.build().map_err(|e| anyhow::anyhow!("{e}"))?)
+ }
+ 
+ #[derive(Error, Debug)]
+diff --git a/crates/tanoshi-tracker/src/myanimelist.rs b/crates/tanoshi-tracker/src/myanimelist.rs
+index b9d182e..24ab794 100644
+--- a/crates/tanoshi-tracker/src/myanimelist.rs
++++ b/crates/tanoshi-tracker/src/myanimelist.rs
+@@ -8,7 +8,9 @@ use oauth2::{
+ use reqwest::StatusCode;
+ use serde::{Deserialize, Serialize};
+ 
+-use crate::{oauth_http_client, Error, OAuthClient, Tracker, TrackerManga, TrackerStatus};
++use crate::{
++    api_http_client, oauth_http_client, Error, OAuthClient, Tracker, TrackerManga, TrackerStatus,
++};
+ 
+ use super::{Session, Token};
+ 
+@@ -237,7 +239,7 @@ impl MyAnimeList {
+         Ok(Self {
+             oauth_client: client,
+             oauth_http_client: oauth_http_client()?,
+-            api_client: reqwest::Client::new(),
++            api_client: api_http_client(),
+         })
+     }
+ 
+diff --git a/crates/tanoshi-vm/Cargo.toml b/crates/tanoshi-vm/Cargo.toml
+index 942aed2..9a1a6ad 100644
+--- a/crates/tanoshi-vm/Cargo.toml
++++ b/crates/tanoshi-vm/Cargo.toml
+@@ -28,3 +28,9 @@ fnv = "1"
+ libloading = "0.9"
+ once_cell = "1"
+ env_logger = { version = "0.11", default-features = false }
++
++# Android/Termux: rustls-platform-verifier cannot load the Android system trust
++# store, so extension downloads pin rustls to the bundled Mozilla roots instead.
++[target.'cfg(target_os = "android")'.dependencies]
++rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
++webpki-roots = "1"
+diff --git a/crates/tanoshi-vm/src/extension/manager.rs b/crates/tanoshi-vm/src/extension/manager.rs
+index 9d74cf9..650eb57 100644
+--- a/crates/tanoshi-vm/src/extension/manager.rs
++++ b/crates/tanoshi-vm/src/extension/manager.rs
+@@ -29,6 +29,8 @@ use super::worker::{
+ const STAGED_LIBRARY_PREFIX: &str = ".tanoshi-staged-";
+ const INSTALL_TEMP_PREFIX: &str = ".tanoshi-install-";
+ const INSTALL_BACKUP_PREFIX: &str = ".tanoshi-backup-";
++/// Smallest plausible plugin; a 404 body is 14 bytes in practice.
++const MIN_PLUGIN_BYTES: usize = 1024;
+ const CALL_RUNNING: u8 = 0;
+ const CALL_ABANDONED: u8 = 1;
+ const CALL_COMPLETE: u8 = 2;
+@@ -988,7 +990,42 @@ impl ExtensionManager {
+ 
+         info!("downloading {source_file_url}");
+ 
+-        let contents = reqwest::get(&source_file_url).await?.bytes().await?;
++        let download = async {
++            let response = crate::http_client()?.get(&source_file_url).send().await?;
++            let status = response.status();
++            let bytes = response.bytes().await?;
++            // A missing platform directory comes back as 404 with a short text
++            // body that would otherwise be written out as a "plugin".
++            if !status.is_success() {
++                bail!("download returned HTTP {status}");
++            }
++            if bytes.len() < MIN_PLUGIN_BYTES {
++                bail!("download returned {} bytes, too small to be a plugin", bytes.len());
++            }
++            Ok::<_, anyhow::Error>(bytes)
++        };
++
++        let contents = match download.await {
++            Ok(contents) => contents,
++            Err(download_error) => {
++                // No prebuilt plugin for this target: compile it from the
++                // extension sources instead of failing outright.
++                match super::build::build_extension(&self.dir, repo_url, &plugin_name).await {
++                    Ok(Some(built)) => {
++                        info!(
++                            "using {name} built from source after download failed: {download_error}"
++                        );
++                        tokio::fs::read(&built).await?.into()
++                    }
++                    Ok(None) => return Err(download_error),
++                    Err(build_error) => {
++                        return Err(anyhow!(
++                            "{download_error}; building {name} from source also failed: {build_error}"
++                        ));
++                    }
++                }
++            }
++        };
+         let plugin_path = self.dir.join(&plugin_name).with_extension(PLUGIN_EXTENSION);
+         let temporary_path = self.unique_managed_path(&plugin_path, INSTALL_TEMP_PREFIX)?;
+ 
+diff --git a/crates/tanoshi-vm/src/extension/mod.rs b/crates/tanoshi-vm/src/extension/mod.rs
+index fc95752..f5ec532 100644
+--- a/crates/tanoshi-vm/src/extension/mod.rs
++++ b/crates/tanoshi-vm/src/extension/mod.rs
+@@ -6,5 +6,7 @@ pub use manager::*;
+ 
+ pub mod worker;
+ 
++pub mod build;
++
+ mod queue;
+ pub use queue::RequestPriority;
+diff --git a/crates/tanoshi-vm/src/lib.rs b/crates/tanoshi-vm/src/lib.rs
+index 56c4447..73876ba 100644
+--- a/crates/tanoshi-vm/src/lib.rs
++++ b/crates/tanoshi-vm/src/lib.rs
+@@ -8,5 +8,28 @@ pub mod prelude;
+ pub const PLUGIN_EXTENSION: &str = "dll";
+ #[cfg(target_os = "macos")]
+ pub const PLUGIN_EXTENSION: &str = "dylib";
+-#[cfg(target_os = "linux")]
++#[cfg(any(target_os = "linux", target_os = "android"))]
+ pub const PLUGIN_EXTENSION: &str = "so";
++
++/// Build an HTTP client with a TLS backend that works on this platform.
++///
++/// Android/Termux cannot use `rustls-platform-verifier` (it needs the Android
++/// Java runtime to load the system trust store, and panics otherwise), so
++/// Android falls back to the bundled Mozilla (webpki) roots. Other platforms
++/// keep reqwest's default backend.
++pub fn http_client() -> reqwest::Result<reqwest::Client> {
++    #[cfg(not(target_os = "android"))]
++    let builder = reqwest::Client::builder();
++
++    #[cfg(target_os = "android")]
++    let builder = {
++        let mut roots = rustls::RootCertStore::empty();
++        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
++        let config = rustls::ClientConfig::builder()
++            .with_root_certificates(roots)
++            .with_no_client_auth();
++        reqwest::Client::builder().tls_backend_preconfigured(config)
++    };
++
++    builder.build()
++}
+diff --git a/crates/tanoshi/Cargo.toml b/crates/tanoshi/Cargo.toml
+index dffc839..8eeae0e 100644
+--- a/crates/tanoshi/Cargo.toml
++++ b/crates/tanoshi/Cargo.toml
+@@ -106,3 +106,9 @@ itertools = { version = "0.15", features = [
+ ], default-features = false }
+ rayon = "1.12"
+ flume = { version = "0.12", default-features = false, features = ["async"] }
++
++# Android/Termux: rustls-platform-verifier cannot load the Android system trust
++# store, so the update worker pins rustls to the bundled Mozilla roots instead.
++[target.'cfg(target_os = "android")'.dependencies]
++rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
++webpki-roots = "1"
+diff --git a/crates/tanoshi/bin/tanoshi.rs b/crates/tanoshi/bin/tanoshi.rs
+index b413e5f..e51c183 100644
+--- a/crates/tanoshi/bin/tanoshi.rs
++++ b/crates/tanoshi/bin/tanoshi.rs
+@@ -42,6 +42,13 @@ fn main() -> Result<(), anyhow::Error> {
+         unsafe { std::env::set_var("TANOSHI_EXTENSION_WORKER", executable) };
+     }
+ 
++    // On Android/Termux both rustls crypto providers can end up enabled by the
++    // dependency tree, so rustls cannot pick one automatically. Install the
++    // `ring` provider explicitly to match the TLS setup used for the update
++    // worker there.
++    #[cfg(target_os = "android")]
++    let _ = rustls::crypto::ring::default_provider().install_default();
++
+     let rust_log = std::env::var("RUST_LOG").ok();
+     let tanoshi_log = std::env::var("TANOSHI_LOG").ok();
+     if rust_log.is_none()
+diff --git a/crates/tanoshi/src/application/worker/updates.rs b/crates/tanoshi/src/application/worker/updates.rs
+index c95167a..2421c10 100644
+--- a/crates/tanoshi/src/application/worker/updates.rs
++++ b/crates/tanoshi/src/application/worker/updates.rs
+@@ -198,7 +198,7 @@ where
+         info!("periodic updates every {period} seconds");
+         let max_concurrent_sources = max_concurrent_sources.max(1);
+         info!("updating up to {max_concurrent_sources} sources concurrently");
+-        let client = reqwest::Client::builder()
++        let client = crate::infrastructure::http::client_builder()
+             .connect_timeout(UPDATE_HTTP_CONNECT_TIMEOUT)
+             .timeout(UPDATE_HTTP_TIMEOUT)
+             .build()
+diff --git a/crates/tanoshi/src/infrastructure/domain/repositories/source.rs b/crates/tanoshi/src/infrastructure/domain/repositories/source.rs
+index 1165b1c..8cb2be0 100644
+--- a/crates/tanoshi/src/infrastructure/domain/repositories/source.rs
++++ b/crates/tanoshi/src/infrastructure/domain/repositories/source.rs
+@@ -9,6 +9,7 @@ use crate::domain::{
+     entities::source::Source,
+     repositories::source::{SourceRepository, SourceRepositoryError},
+ };
++use crate::infrastructure::http;
+ 
+ #[derive(Deserialize)]
+ pub struct SourceDto {
+@@ -55,7 +56,7 @@ impl SourceRepository for SourceRepositoryImpl {
+         repo_url: &str,
+         filter_installed: bool,
+     ) -> Result<Vec<Source>, SourceRepositoryError> {
+-        let source_indexes: Vec<SourceDto> = reqwest::get(&format!("{repo_url}/index.json"))
++        let source_indexes: Vec<SourceDto> = http::get(&format!("{repo_url}/index.json"))
+             .await?
+             .json()
+             .await?;
+@@ -93,7 +94,7 @@ impl SourceRepository for SourceRepositoryImpl {
+             ));
+         }
+ 
+-        let source_indexes: Vec<SourceDto> = reqwest::get(format!("{repo_url}/index.json"))
++        let source_indexes: Vec<SourceDto> = http::get(format!("{repo_url}/index.json"))
+             .await?
+             .json()
+             .await?;
+@@ -121,7 +122,7 @@ impl SourceRepository for SourceRepositoryImpl {
+     async fn update_source(&self, repo_url: &str, id: i64) -> Result<(), SourceRepositoryError> {
+         let installed_source = self.extension_manager.get_source_info(id)?;
+ 
+-        let source_indexes: Vec<SourceDto> = reqwest::get(format!("{repo_url}/index.json"))
++        let source_indexes: Vec<SourceDto> = http::get(format!("{repo_url}/index.json"))
+             .await?
+             .json()
+             .await?;
+diff --git a/crates/tanoshi/src/infrastructure/mod.rs b/crates/tanoshi/src/infrastructure/mod.rs
+index 85d30fb..9e015cf 100644
+--- a/crates/tanoshi/src/infrastructure/mod.rs
++++ b/crates/tanoshi/src/infrastructure/mod.rs
+@@ -3,5 +3,6 @@ pub mod archive;
+ pub mod config;
+ pub mod database;
+ pub mod domain;
++pub mod http;
+ pub mod local;
+ pub mod notification;
+diff --git a/crates/tanoshi/src/presentation/rest/image.rs b/crates/tanoshi/src/presentation/rest/image.rs
+index 42707d8..81ad8c0 100644
+--- a/crates/tanoshi/src/presentation/rest/image.rs
++++ b/crates/tanoshi/src/presentation/rest/image.rs
+@@ -29,7 +29,12 @@ pub async fn fetch_image(
+     let image = svc
+         .fetch_image(&config.secret, &encrypted_url, params.source_id)
+         .await
+-        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
++        .map_err(|error| {
++            // Surface the cause: the client only sees a 500, and without this
++            // every image failure is invisible in the server log.
++            log::warn!("image fetch failed for source {}: {error}", params.source_id);
++            StatusCode::INTERNAL_SERVER_ERROR
++        })?;
+ 
+     Response::builder()
+         .header("Content-Type", image.content_type)

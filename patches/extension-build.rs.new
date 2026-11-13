@@ -1,0 +1,219 @@
+//! Build extensions from source when no prebuilt binary is available.
+//!
+//! The upstream extension repository only publishes prebuilt plugins for the
+//! glibc Linux and Windows targets. Android/Termux is Bionic, so those binaries
+//! cannot be loaded: the download URL has no Android directory at all and
+//! returns a 14-byte `404: Not Found` body, which then fails as
+//! "too small to be an ELF executable".
+//!
+//! The extension sources are ordinary Rust crates and build fine natively on
+//! Termux, so when the prebuilt download is unusable we clone the source
+//! repository at the release tag matching the running compiler, build just the
+//! requested extension with the local toolchain, and hand the resulting library
+//! back to the normal install path.
+//!
+//! This is compiled on every platform but only reached after a download has
+//! already been rejected, so a missing git/cargo toolchain simply leaves the
+//! original download error in place.
+
+use std::{
+    path::{Path, PathBuf},
+    process::Stdio,
+    time::Duration,
+};
+
+use anyhow::{Context, Result, anyhow, bail};
+use tokio::{process::Command, sync::Mutex as AsyncMutex};
+
+/// Extension source repository.
+const SOURCE_REPOSITORY: &str = "https://github.com/luigi311/tanoshi-extensions";
+
+/// A build must not hang forever on a cold dependency fetch.
+const BUILD_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
+/// The extension crate names that may be built from source. Only names that
+/// exist in the source repository's `extensions/` directory are accepted, which
+/// keeps an attacker-controlled download name from escaping that directory.
+fn extension_crate_name(name: &str) -> Option<&'static str> {
+    const CRATES: &[&str] = &[
+        "guya",
+        "mangadex",
+        "manhwa18cc",
+        "nhentai",
+        "weebcentral",
+    ];
+    let lower = name.to_ascii_lowercase();
+    CRATES.iter().copied().find(|krate| *krate == lower)
+}
+
+/// Borrow a release tag from the repository URL.
+///
+/// The repository is laid out as `<url>/<tag>/<target>/<name>.so` where `<tag>`
+/// is the compiler version directory (e.g. `1.99.1`), so the last path segment
+/// of the extension repository URL names the branch holding the sources.
+fn source_ref(repository: &str) -> String {
+    repository
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|segment| !segment.is_empty())
+        .unwrap_or("master")
+        .to_string()
+}
+
+/// Where the checked-out sources and their build output live.
+fn workspace_root(extension_dir: &Path) -> PathBuf {
+    extension_dir.join(".tanoshi-ext-src")
+}
+
+async fn run(command: &mut Command, what: &str) -> Result<String> {
+    let output = tokio::time::timeout(BUILD_TIMEOUT, command.output())
+        .await
+        .map_err(|_| anyhow!("{what} timed out after {}s", BUILD_TIMEOUT.as_secs()))?
+        .with_context(|| format!("failed to start {what}"))?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail: String = stderr
+            .chars()
+            .rev()
+            .take(2000)
+            .collect::<Vec<_>>()
+            .into_iter()
+            .rev()
+            .collect();
+        bail!("{what} failed: {}", tail.trim());
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).into_owned())
+}
+
+/// Serializes source builds: a cold build is minutes of CPU work and the
+/// checkouts share one directory, so concurrent installs must not race.
+static BUILD_LOCK: std::sync::OnceLock<AsyncMutex<()>> = std::sync::OnceLock::new();
+
+/// Build `name` from the extension sources and return the built library path.
+///
+/// Returns `Ok(None)` when the extension is not known to the source repository,
+/// so the caller can report the original download failure instead.
+pub async fn build_extension(
+    extension_dir: &Path,
+    repository: &str,
+    name: &str,
+) -> Result<Option<PathBuf>> {
+    let Some(krate) = extension_crate_name(name) else {
+        return Ok(None);
+    };
+
+    let lock = BUILD_LOCK.get_or_init(|| AsyncMutex::new(()));
+    let _guard = lock.lock().await;
+
+    let root = workspace_root(extension_dir);
+    let checkout = root.join("sources");
+    let target_dir = root.join("target");
+    tokio::fs::create_dir_all(&root).await?;
+
+    let git_dir = checkout.join(".git");
+    let reference = source_ref(repository);
+    if git_dir.exists() {
+        // Refresh the existing checkout, ignoring failures so an already usable
+        // tree still builds when the network is down.
+        let mut fetch = Command::new("git");
+        fetch
+            .current_dir(&checkout)
+            .arg("fetch")
+            .arg("--depth")
+            .arg("1")
+            .arg("origin");
+        let _ = run(&mut fetch, "git fetch").await;
+
+        if manifest_exists(&checkout) {
+            let mut checkout_ref = Command::new("git");
+            checkout_ref
+                .current_dir(&checkout)
+                .arg("checkout")
+                .arg("--force")
+                .arg(&reference);
+            if let Err(error) = run(&mut checkout_ref, "git checkout").await {
+                warn(&format!(
+                    "could not switch extension sources to their release: {error}"
+                ));
+            }
+        }
+    }
+
+    // The release branches only carry prebuilt binaries, so a fresh clone of
+    // that branch succeeds but contains no sources. Fall back to the default
+    // branch, which is where the crates live.
+    if !manifest_exists(&checkout) {
+        if checkout.exists() {
+            tokio::fs::remove_dir_all(&checkout).await.ok();
+        }
+        match clone(&checkout, Some(&reference)).await {
+            Ok(()) if manifest_exists(&checkout) => {}
+            _ => {
+                if checkout.exists() {
+                    tokio::fs::remove_dir_all(&checkout).await.ok();
+                }
+                clone(&checkout, None).await?;
+                if !manifest_exists(&checkout) {
+                    bail!(
+                        "extension sources have no Cargo.toml in {}",
+                        checkout.display()
+                    );
+                }
+            }
+        }
+    }
+
+    let manifest = checkout.join("Cargo.toml");
+    if !manifest.exists() {
+        bail!("extension sources have no Cargo.toml at {}", manifest.display());
+    }
+    let mut build = Command::new("cargo");
+    build
+        .current_dir(&checkout)
+        .env("CARGO_TARGET_DIR", &target_dir)
+        .arg("build")
+        .arg("--release")
+        .arg("-p")
+        .arg(krate)
+        .stdin(Stdio::null());
+    info!("building extension {krate} from source in {}", checkout.display());
+    run(&mut build, &format!("cargo build -p {krate}")).await?;
+
+    // cdylib output is `lib<name>.so` (host dylib name on other platforms).
+    let candidate = target_dir
+        .join("release")
+        .join(format!("lib{krate}{}", std::env::consts::DLL_SUFFIX));
+    if !candidate.exists() {
+        bail!("extension build produced no library at {}", candidate.display());
+    }
+
+    info!("built extension {krate} at {}", candidate.display());
+    Ok(Some(candidate))
+}
+
+fn warn(message: &str) {
+    log::warn!("{message}");
+}
+
+/// A usable source checkout has the workspace manifest at its root.
+fn manifest_exists(checkout: &Path) -> bool {
+    checkout.join("Cargo.toml").is_file()
+}
+
+/// Shallow-clone the extension sources, optionally from a specific branch.
+async fn clone(checkout: &Path, reference: Option<&str>) -> Result<()> {
+    if let Some(parent) = checkout.parent() {
+        tokio::fs::create_dir_all(parent).await?;
+    }
+    let mut command = Command::new("git");
+    command.arg("clone").arg("--depth").arg("1");
+    if let Some(reference) = reference {
+        command.arg("--branch").arg(reference);
+    }
+    command.arg(SOURCE_REPOSITORY).arg(checkout);
+    run(&mut command, "git clone").await?;
+    Ok(())
+}

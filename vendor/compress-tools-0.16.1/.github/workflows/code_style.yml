@@ -1,0 +1,38 @@
+name: Code Style Check
+
+on:
+  push:
+    branches:
+      - master
+      - feature-*
+      - issue-*
+  pull_request:
+
+jobs:
+  code_style:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Install Dependencies
+        run: sudo apt-get update; sudo apt-get install libarchive-dev libb2-dev liblz4-dev libacl1-dev libzstd-dev liblzma-dev libbz2-dev zlib1g-dev libxml2-dev nettle-dev
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rustfmt
+
+      - name: Run cargo fmt
+        run: cargo fmt --all -- --check
+
+      - name: Install stable toolchain (MSRV-aware lockfile resolution)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Generate Cargo.lock
+        run: cargo generate-lockfile
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: 1.82.0 # MSRV
+          components: clippy
+
+      - name: Run cargo clippy
+        run: cargo clippy --all-features --all --tests -- -D clippy::all

@@ -1,0 +1,20 @@
+[package]
+name = "qiscans"
+version = "0.6.3"
+edition.workspace = true
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+anyhow = { workspace = true }
+chrono = { workspace = true }
+extension-utils = { workspace = true }
+log = { workspace = true }
+networking = { workspace = true }
+scraper = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tanoshi-lib = { workspace = true }
+urlencoding = { workspace = true }
+bytes = { workspace = true }

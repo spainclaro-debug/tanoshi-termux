@@ -1,0 +1,97 @@
+name: CI - Linux - x86_64
+
+on:
+  push:
+    branches:
+      - master
+      - feature-*
+      - issue-*
+  pull_request:
+
+jobs:
+  build_and_test:
+    strategy:
+      fail-fast: false
+      matrix:
+        version:
+          - 1.82.0 # MSRV
+          - stable
+          - nightly
+
+    name: Test ${{ matrix.version }} - x86_64-unknown-linux-gnu
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Install Dependencies
+        run: sudo apt-get update; sudo apt-get install libarchive-dev libb2-dev liblz4-dev libacl1-dev libzstd-dev liblzma-dev libbz2-dev zlib1g-dev libxml2-dev nettle-dev
+      - name: Checkout sources
+        uses: actions/checkout@v6
+      - name: Install stable toolchain (MSRV-aware lockfile resolution)
+        uses: dtolnay/rust-toolchain@stable
+      - name: Generate Cargo.lock
+        run: cargo generate-lockfile
+        env:
+          CARGO_RESOLVER_INCOMPATIBLE_RUST_VERSIONS: fallback
+      - name: Install ${{ matrix.version }}
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.version }}
+          components: ${{ matrix.version == 'nightly' && 'llvm-tools-preview' || '' }}
+      - name: Install grcov tool
+        if: matrix.version == 'nightly'
+        uses: taiki-e/install-action@v2
+        with:
+          tool: grcov
+      - name: Cache cargo registry
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/registry
+          key: ${{ matrix.version }}-x86_64-unknown-linux-gnu-cargo-registry-trimmed-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo index
+        uses: actions/cache@v5
+        with:
+          path: ~/.cargo/git
+          key: ${{ matrix.version }}-x86_64-unknown-linux-gnu-cargo-index-trimmed-${{ hashFiles('**/Cargo.lock') }}
+      - name: Cache cargo build
+        uses: actions/cache@v5
+        with:
+          path: target
+          key: ${{ matrix.version }}-x86_64-unknown-linux-gnu-cargo-build-trimmed-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Check build
+        run: cargo check --release --all --bins --examples --tests
+
+      - name: Tests
+        timeout-minutes: 10
+        run: cargo test --release --all --all-features --no-fail-fast -- --nocapture
+
+      - name: Run cargo test with coverage
+        if: matrix.version == 'nightly'
+        run: cargo test --all --all-features --no-fail-fast -- --nocapture
+        env:
+          CARGO_INCREMENTAL: "0"
+          RUSTFLAGS: "-Cinstrument-coverage"
+          LLVM_PROFILE_FILE: "target/coverage-%p-%m.profraw"
+      - id: coverage
+        if: matrix.version == 'nightly'
+        name: Gather coverage with grcov
+        run: |
+          grcov . \
+            --binary-path ./target/debug/ \
+            -s . \
+            -t lcov \
+            --branch \
+            --ignore-not-existing \
+            --ignore '/*' \
+            -o lcov.info
+          echo "report=lcov.info" >> "$GITHUB_OUTPUT"
+      - name: Coveralls upload
+        if: matrix.version == 'nightly'
+        uses: coverallsapp/github-action@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          file: ${{ steps.coverage.outputs.report }}
+      - name: Clear the coverage files from cache
+        if: matrix.version == 'nightly'
+        run: |
+          find target/ -name "*.profraw" -exec rm {} +

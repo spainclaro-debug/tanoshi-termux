@@ -1,0 +1,13 @@
+# The server binary, plugins and upstream source are distributed inside
+# tanoshi-termux-aarch64.tar.gz and the GitHub releases, not as loose files.
+/bin/
+/plugins/
+/src/
+
+# Local runtime state
+/data/
+/data.old-*/
+/backups/
+/tanoshi.sh
+*.log
+.tanoshi-*
