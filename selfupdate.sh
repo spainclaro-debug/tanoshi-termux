@@ -86,7 +86,7 @@ if [ "$ROLLBACK" = "1" ]; then
   [ -f "$LATEST_BACKUP/VERSION" ] && cp -f "$LATEST_BACKUP/VERSION" "$PKG_DIR/VERSION"
   [ -f "$LATEST_BACKUP/LIB_VERSION" ] && cp -f "$LATEST_BACKUP/LIB_VERSION" "$PKG_DIR/LIB_VERSION"
   [ -f "$LATEST_BACKUP/PACKAGE_TAG" ] && cp -f "$LATEST_BACKUP/PACKAGE_TAG" "$PKG_DIR/PACKAGE_TAG"
-  ok "restored package ${CURRENT_TAG:-?}"
+  ok "restored package $(cat "$PKG_DIR/PACKAGE_TAG" 2>/dev/null || echo unknown)"
   svc_start || true
   exit 0
 fi
