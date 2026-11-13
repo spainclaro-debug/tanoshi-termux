@@ -1,0 +1,3 @@
+# Keep the archive byte-for-byte; never apply text conversion.
+*.tar.gz binary
+*.sha256 text eol=lf
