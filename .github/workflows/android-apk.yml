@@ -107,13 +107,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
+          NOTES="Standalone arm64-v8a Android app that bundles and runs the Tanoshi server (no Termux). Highlights of 0.2.0: catalogue infinite scroll in the embedded web UI, in-app updates (Settings -> Updates), selectable Dark/Light/Nord/Catppuccin themes, and a stable sideload signing key so updates install over older releases. Install: download app-debug.apk and sideload it, then open the app, start the server and register the first admin account. Upgrading from 0.1.0 requires a one-time uninstall (0.1.0 was signed with a different key). See android/CHANGELOG.md and android/README.md."
           gh release create "$TAG" \
             android/app/build/outputs/apk/debug/app-debug.apk \
             --repo "$GITHUB_REPOSITORY" \
             --title "Tanoshi Android $TAG" \
-            --notes "Standalone arm64-v8a Android app that bundles and runs the Tanoshi server (no Termux).
-
-Highlights of 0.2.0: catalogue infinite scroll in the embedded web UI, in-app updates (Settings -> Updates), selectable Dark/Light/Nord/Catppuccin themes, and a stable sideload signing key so updates install over older releases.
-
-Install: download app-debug.apk and sideload it, then open the app, start the server and register the first admin account. Upgrading from 0.1.0 requires a one-time uninstall (0.1.0 was signed with a different key). See android/CHANGELOG.md and android/README.md."
-
+            --notes "$NOTES"
