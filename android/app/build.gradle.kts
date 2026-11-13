@@ -4,17 +4,41 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+// Version can be overridden from CI (`-PappVersionName=0.2.0 -PappVersionCode=200`)
+// so tagged Android releases always carry an increasing version automatically.
+val appVersionName: String = providers.gradleProperty("appVersionName").orElse("0.2.0").get()
+val appVersionCode: Int = providers.gradleProperty("appVersionCode").orElse("2").get().toInt()
+
+// Shared sideload signing key. Committing a keystore is normally a bad idea,
+// but this app is only distributed as a sideloadable APK and every release
+// must be signed with the SAME key, otherwise Android refuses to install an
+// update over the existing app. Replace it with your own key for a private
+// build (see android/keystore/README.md).
+val signingKeystore = rootProject.file("keystore/tanoshi-signing.jks")
+val useSharedKeystore = signingKeystore.exists()
+
 android {
     namespace = "dev.spainclaro.tanoshi"
     compileSdk = 35
     buildToolsVersion = "35.0.0"
 
+    signingConfigs {
+        create("tanoshi") {
+            if (useSharedKeystore) {
+                storeFile = signingKeystore
+                storePassword = "tanoshi-android"
+                keyAlias = "tanoshi"
+                keyPassword = "tanoshi-android"
+            }
+        }
+    }
+
     defaultConfig {
         applicationId = "dev.spainclaro.tanoshi"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
 
         // The bundled Tanoshi server and all extension plugins are built for
         // arm64 (aarch64-linux-android) only. Restricting the ABI keeps the APK
@@ -29,12 +53,24 @@ android {
         debug {
             applicationIdSuffix = ".debug"
             versionNameSuffix = "-debug"
+            signingConfig = if (useSharedKeystore) {
+                signingConfigs.getByName("tanoshi")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
         release {
             isMinifyEnabled = false
-            // This project ships sideloadable APKs. For a production build,
-            // configure your own signingConfig (see android/README.md).
-            signingConfig = signingConfigs.getByName("debug")
+            // Releases are only ever sideloaded; sign them with the same key
+            // as the debug build so in-app updates can replace an installed
+            // build. Distribution uses the debug variant (`.debug`
+            // applicationId), which is what CI publishes.
+            // See android/keystore/README.md.
+            signingConfig = if (useSharedKeystore) {
+                signingConfigs.getByName("tanoshi")
+            } else {
+                signingConfigs.getByName("debug")
+            }
         }
     }
 

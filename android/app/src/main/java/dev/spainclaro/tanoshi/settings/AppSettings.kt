@@ -18,8 +18,10 @@ object AppSettings {
     private const val KEY_NOTIFICATIONS_REQUESTED = "notifications_requested"
     private const val KEY_BATTERY_PROMPT_SHOWN = "battery_prompt_shown"
     private const val KEY_SERVER_SHOULD_RUN = "server_should_run"
+    private const val KEY_THEME_ID = "theme_id"
 
     const val DEFAULT_PORT = 8080
+    const val DEFAULT_THEME_ID = "dark"
 
     private lateinit var prefs: SharedPreferences
 
@@ -64,4 +66,13 @@ object AppSettings {
     var serverShouldRun: Boolean
         get() = requirePrefs().getBoolean(KEY_SERVER_SHOULD_RUN, false)
         set(value) = requirePrefs().edit().putBoolean(KEY_SERVER_SHOULD_RUN, value).apply()
+
+    /**
+     * Selected app theme ([dev.spainclaro.tanoshi.ui.theme.ThemeMode.id]):
+     * "dark", "light", "nord" or "catppuccin". UI-only; the embedded Tanoshi
+     * web UI has its own theme.
+     */
+    var themeId: String
+        get() = requirePrefs().getString(KEY_THEME_ID, DEFAULT_THEME_ID) ?: DEFAULT_THEME_ID
+        set(value) = requirePrefs().edit().putString(KEY_THEME_ID, value).apply()
 }

@@ -26,6 +26,12 @@ app runtime.
 All of these files must be ELF aarch64 shared objects. Android only loads or
 executes them from `nativeLibraryDir`; nothing under `filesDir` is executable.
 
+`libtanoshi.so` also embeds the Tanoshi web UI: the wasm bundle from
+`android/native/web-dist/` (the package-3 dist built with
+`patches/tanoshi-infinite-scroll.patch`) is compiled into the server binary,
+so the catalogue/infinite-scroll behaviour ships with the server rather than
+with the Android app.
+
 ---
 
 ## Prerequisites
@@ -87,7 +93,7 @@ The scripts to run are:
 
 | Script | Purpose |
 | --- | --- |
-| `native/build_tanoshi.sh` | Fetch upstream Tanoshi at the pinned version, apply this repo's Termux patch set and the Android app patch, build the web UI and the `aarch64-linux-android` server binary. |
+| `native/build_tanoshi.sh` | Fetch upstream Tanoshi at the pinned version, apply this repo's Termux patch set and the Android app patch, embed the vendored `native/web-dist/` web UI (package-3, infinite scroll) when the source tree has no `dist/`, and build the `aarch64-linux-android` server binary. |
 | `native/build_libarchive.sh` | Cross-build the minimal `libarchive.so` (zlib only) with the NDK CMake toolchain and stage its `pkg-config` file for `compress-tools`. |
 | `native/sync_prebuilt.sh` | Copy the built `tanoshi`, `libarchive.so` and the nine plugins into `android/app/src/main/jniLibs/arm64-v8a/` with the `lib` prefix and validate the ELF files. |
 
@@ -115,7 +121,9 @@ the equivalent manual steps, which is what the scripts automate.
    - the writable plugin directory is still passed to the plugins as their
      preferences directory.
 3. Optionally `patches/tanoshi-infinite-scroll.patch` (the Termux package's
-   auto-loading catalogue; harmless to include).
+   auto-loading catalogue). This only matters when regenerating the wasm web
+   UI: the vendored `native/web-dist/` already contains the patched output, so
+   a normal server rebuild uses it as-is.
 
 Manually:
 
@@ -183,14 +191,32 @@ export PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig"
 
 ### 3. Web UI and server binary
 
-The server binary embeds `crates/tanoshi-web/dist`, so build the wasm UI
-first (skip this only if a matching `dist/` was already produced by the same
-source state):
+The server binary embeds the Tanoshi web UI (`crates/tanoshi-web/dist`) with
+`rust-embed`, so a web UI dist must exist before the server is compiled. The
+default source is the **vendored dist** in this directory:
+
+- `android/native/web-dist/` is the **package-3 web UI** — the same dist the
+  Termux package-3 archive uses: upstream Tanoshi 0.40.0's wasm UI built with
+  `patches/tanoshi-infinite-scroll.patch` applied. Its wasm bundle contains
+  the `catalogue-scroll-sentinel`, which auto-loads the next catalogue page
+  about 600 px before the viewport and turns the **Load More** button into
+  *No more results* at the end.
+- `build_tanoshi.sh` picks the web UI in this order: an existing
+  `crates/tanoshi-web/dist/`, then the vendored `android/native/web-dist/`
+  (copied into place), then `trunk build --release`. A plain
+  `./build_tanoshi.sh` therefore uses the infinite-scroll UI with no web
+  toolchain installed.
+- The checked-in `libtanoshi.so` was rebuilt this way for app **v0.2.0**.
+
+To change the web UI itself, rebuild the wasm dist with trunk (using the
+pinned tool versions from the prerequisites) and refresh the vendored copy so
+future native builds stay consistent:
 
 ```bash
 cd crates/tanoshi-web
 CARGO_TARGET_DIR="$PWD/../../target-wasm" trunk build --release
 cd ../..
+rm -rf android/native/web-dist && cp -R crates/tanoshi-web/dist android/native/web-dist
 ```
 
 Then build the server. Make sure the `pkg-config` environment from step 2
@@ -289,6 +315,9 @@ readelf -d libtanoshi.so | grep -E 'RPATH|RUNPATH'   # expect no output
 # 4. 16 KB page alignment (Android 15+ devices with 16 KB pages)
 readelf -lW libtanoshi.so | grep LOAD
 #   expected alignment: 0x4000 in the last column
+
+# 5. The embedded web UI is the infinite-scroll dist (v0.2.0 and later)
+grep -c -a "catalogue-scroll-sentinel" libtanoshi.so   # expect 1
 ```
 
 And on the built APK:
@@ -313,6 +342,8 @@ output of this pipeline, built on an x86_64 Linux host with:
 - Rust 1.99.1 with the `aarch64-linux-android` target,
 - upstream Tanoshi checked out at the tag in `VERSION` (`0.40.0`) and patched
   with the Termux patch set + `native/patches/0001-android-app.patch`,
+- the embedded web UI from `android/native/web-dist/` (package-3 dist with the
+  infinite-scroll patch),
 - libarchive **3.8.11**, built with zlib linked statically and SONAME
   `libarchive.so`,
 - the plugin ABI pinned to `LIB_VERSION` (`0.38.0`); plugin files are named
@@ -330,8 +361,9 @@ Bit-for-bit identical binaries are **not** expected between rebuilds:
   pinned, so upstream may have moved.
 - Cargo resolves dependencies from the lock files; a `Cargo.lock` update or a
   different Rust/NDK toolchain changes code generation.
-- The web UI build (`trunk`/`wasm-bindgen`/`sass`/`wasm-opt`) embeds build
-  output and has its own pinned versions.
+- The web UI is the vendored package-3 dist; its hashed asset names and
+  embedded build output change if it is regenerated with another
+  `trunk`/`wasm-bindgen`/`sass`/`wasm-opt` toolchain.
 - Timestamps and absolute build paths can end up in binaries and archives.
 
 Functionally equivalent is what matters: the server version, the

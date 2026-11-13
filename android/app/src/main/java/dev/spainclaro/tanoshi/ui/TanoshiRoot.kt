@@ -60,6 +60,7 @@ import dev.spainclaro.tanoshi.ui.screens.BrowserScreen
 import dev.spainclaro.tanoshi.ui.screens.LogsScreen
 import dev.spainclaro.tanoshi.ui.screens.ServerScreen
 import dev.spainclaro.tanoshi.ui.screens.SettingsScreen
+import dev.spainclaro.tanoshi.ui.theme.ThemeMode
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 
@@ -77,6 +78,8 @@ private enum class RootTab(val labelRes: Int, val icon: ImageVector) {
  */
 @Composable
 fun TanoshiRoot(
+    themeMode: ThemeMode,
+    onThemeChange: (ThemeMode) -> Unit,
     viewModel: ServerViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -206,6 +209,8 @@ fun TanoshiRoot(
                     RootTab.SETTINGS -> SettingsScreen(
                         viewModel = viewModel,
                         serverRunning = snapshot.state == RunState.RUNNING,
+                        themeMode = themeMode,
+                        onThemeChange = onThemeChange,
                         onShowMessage = showMessage,
                     )
                 }

@@ -5,6 +5,11 @@ manga server and the same nine extensions as the Termux package in the
 repository root — **without Termux**. The app runs the server as a foreground
 service and shows its web UI in an embedded WebView (or your normal browser).
 
+Current release: **0.2.0** — see the
+[latest release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest)
+and [`CHANGELOG.md`](CHANGELOG.md). It adds catalogue infinite scroll in the
+embedded web UI, in-app updates and selectable themes on top of 0.1.0.
+
 This directory is the Android Gradle project (`dev.spainclaro.tanoshi`).
 The `arm64-v8a` native binaries are prebuilt and checked in, so building the
 APK only needs JDK 17 and the Android SDK — no Rust or NDK. See
@@ -12,18 +17,24 @@ APK only needs JDK 17 and the Android SDK — no Rust or NDK. See
 
 > **Sideload only, arm64-v8a only, HTTP only.** There is no Play Store build,
 > no TLS and no default account. Read the [Security notes](#security-notes)
-> before exposing it on a LAN.
+> before exposing it on a LAN. **Users of 0.1.0 must uninstall it once before
+> installing 0.2.0** (different signing key) — see
+> [Installing and updating](#installing-and-updating).
 
 ---
 
 ## Contents
 
 - [What you get](#what-you-get)
+- [What's new in 0.2.0](#whats-new-in-020)
 - [Requirements](#requirements)
 - [Building the APK](#building-the-apk)
-- [Installing (sideloading)](#installing-sideloading)
+- [Installing and updating](#installing-and-updating)
 - [First run](#first-run)
 - [Using the app](#using-the-app)
+- [The embedded web UI](#the-embedded-web-ui)
+- [Themes](#themes)
+- [In-app updates](#in-app-updates)
 - [Architecture](#architecture)
 - [Storage layout](#storage-layout)
 - [Settings and `config.yml`](#settings-and-configyml)
@@ -32,6 +43,7 @@ APK only needs JDK 17 and the Android SDK — no Rust or NDK. See
 - [Troubleshooting](#troubleshooting)
 - [Versions](#versions)
 - [Project layout](#project-layout)
+- [Changelog](#changelog)
 - [Credits and licences](#credits-and-licences)
 
 ---
@@ -43,13 +55,41 @@ APK only needs JDK 17 and the Android SDK — no Rust or NDK. See
   `aarch64` native process inside the app's sandbox.
 - **Nine extensions** bundled as native plugins: Mangadex, Guya, Manhwa18cc,
   WeebCentral, Atsumaru, QiScans, Manga Ball, MadaraDex and HentaiNexus.
+- The same embedded Tanoshi web UI as the Termux package, including the
+  **infinite-scroll catalogue**: the next page loads automatically as you
+  scroll, with **Load More** as the manual fallback.
 - A small Material 3 wrapper: start/stop the server, watch its logs, open the
-  web UI, edit the port, toggle LAN exposure and inspect/edit `config.yml`.
+  web UI, edit the port, toggle LAN exposure, inspect/edit `config.yml`, pick
+  an app theme and update the app from inside it.
 - The entire server data directory lives in the app's private storage; the
   phone needs no root, no Termux and no shell.
 
 The APK is large because it carries the ~35 MB server binary plus `libarchive`
 and the plugins. It is not split by ABI — only `arm64-v8a` is shipped.
+
+---
+
+## What's new in 0.2.0
+
+- **In-app updates** — `Settings → Updates` checks this repository's GitHub
+  releases and installs a newer `android-v*` release through Android's package
+  installer. See [In-app updates](#in-app-updates).
+- **Selectable themes** — `Settings → Appearance` offers Dark (default),
+  Light, Nord and Catppuccin Material 3 themes for the app UI. See
+  [Themes](#themes).
+- **Catalogue infinite scroll** in the embedded Tanoshi web UI: the next page
+  loads automatically as you scroll, and **Load More** becomes *No more
+  results* at the end. This is a server-side (web UI) change, not just an app
+  change. See [The embedded web UI](#the-embedded-web-ui).
+- **Stable signing key** — every release is now signed with
+  `android/keystore/tanoshi-signing.jks`, which is what makes in-app updates
+  possible. **If you installed 0.1.0, uninstall it once before installing
+  0.2.0** (it was signed with a throwaway CI key, and uninstalling deletes
+  app data) — see [Installing and updating](#installing-and-updating).
+- **Tag-driven versioning** — `android-vX.Y.Z` tags set the app version and
+  version code automatically (see [CI](#ci)).
+
+Full details: [`CHANGELOG.md`](CHANGELOG.md).
 
 ---
 
@@ -61,6 +101,8 @@ and the plugins. It is not split by ABI — only `arm64-v8a` is shipped.
   (32-bit and x86/x86_64 builds are not bundled — see
   [`ASSUMPTIONS_AND_OPEN_QUESTIONS.md`](ASSUMPTIONS_AND_OPEN_QUESTIONS.md).)
 - ~250 MB free space for the app and a fresh library.
+- To use **in-app updates**: a network connection and the "Install unknown
+  apps" permission for Tanoshi (the app links to the system setting).
 
 **To build the APK (app only)**
 
@@ -100,33 +142,57 @@ The first run downloads the Gradle 8.9 distribution and the Compose
 dependencies; later builds are cached. Other useful tasks:
 
 ```bash
-./gradlew :app:assembleRelease   # release variant (see Signing)
+./gradlew :app:assembleRelease   # release variant (same shared signing key)
 ./gradlew :app:installDebug      # build + install on a connected device
 ./gradlew clean                  # remove build outputs
 ```
 
+Local builds use the defaults in `app/build.gradle.kts` (**0.2.0**,
+`versionCode` 2). CI derives both from the release tag; you can do the same
+manually:
+
+```bash
+./gradlew :app:assembleDebug -PappVersionName=0.2.0 -PappVersionCode=200
+```
+
 ### Signing
 
-- **Debug builds** are signed with the standard per-machine debug keystore
-  (`~/.android/debug.keystore`, created automatically). CI publishes this
-  variant. Its application id is `dev.spainclaro.tanoshi.debug`, so it can be
-  installed alongside a release build, but they do not share data.
-- **Release builds** currently reuse the debug signing configuration in
-  `app/build.gradle.kts` as a placeholder for sideloading. For a properly
-  signed release, configure your own keystore and **never commit it**:
+The app is sideloaded only, so the signing key does not need to be a secret —
+it only needs to be **stable**. Every release (CI and local) is signed with
+the key committed at
+[`keystore/tanoshi-signing.jks`](keystore/tanoshi-signing.jks):
 
-  ```bash
-  keytool -genkeypair -v -keystore tanoshi-release.jks \
-    -alias tanoshi -keyalg RSA -keysize 4096 -validity 10000
-  ```
+| Field | Value |
+| --- | --- |
+| Keystore | `android/keystore/tanoshi-signing.jks` (JKS) |
+| Key alias | `tanoshi` |
+| Store / key password | `tanoshi-android` |
 
-  Then replace the placeholder signing configuration (for example with a
-  `release` signing config that reads the store path/passwords from
-  environment variables or CI secrets) and build with
-  `./gradlew :app:assembleRelease`.
+`app/build.gradle.kts` signs **both** the `debug` and `release` build types
+with this key when the file exists, and falls back to the local Android debug
+keystore (`~/.android/debug.keystore`) when it does not. CI builds the `debug`
+variant, whose application id is `dev.spainclaro.tanoshi.debug`; the release
+variant uses `dev.spainclaro.tanoshi`. In-app updates replace the installed
+app, so they only work within the same package id — i.e. the published
+`app-debug.apk` replaces a previously installed `app-debug.apk`.
 
-  Keep this keystore safe: Android refuses to update an installed app whose
-  signature changed, and reinstalling from scratch deletes the app's data.
+Why commit a keystore? Android refuses to install an update over an app signed
+with a different key, and the [in-app updater](#in-app-updates) hands the next
+release APK to the system installer. A per-machine debug key would make every
+build incompatible. The full rationale, key details and replacement
+instructions are in [`keystore/README.md`](keystore/README.md).
+
+**Upgrading from 0.1.0:** 0.1.0 was built with an ephemeral CI debug key, so
+0.2.0 cannot be installed over it (Android reports a signature mismatch).
+Uninstall 0.1.0 first — this deletes the app's private data. See
+[Installing and updating](#installing-and-updating).
+
+**Using your own key:** for a private build, replace
+`android/keystore/tanoshi-signing.jks` (or point the `signingConfigs` block at
+your own file and passwords) and rebuild. Changing the key breaks in-app
+updates for already-installed builds: users must uninstall once. See
+[`keystore/README.md`](keystore/README.md) for the `keytool` command and the
+details.
 
 ### CI
 
@@ -139,18 +205,28 @@ uploads the APK as the **`tanoshi-android-debug-apk`** artifact. No third-party
 Android setup/release actions are used: the SDK is provisioned with
 `sdkmanager` and releases are published with the preinstalled GitHub CLI.
 
-Android releases use tags of the form **`android-v*`** (for example
-`android-v0.1.0`), and for those tags the same APK is attached to a new GitHub
-release. The `v*` tags that belong to the Termux package releases
-(`v0.40.0-termux.3`, …) do not trigger this workflow, so the two release trains
-cannot collide.
+Releases are created only for tags of the form **`android-vX.Y.Z`**, for
+example `android-v0.2.0`. For a tag, CI derives the version:
+
+- `versionName` = `X.Y.Z` from the tag;
+- `versionCode` = `X * 10000 + Y * 100 + Z` (so `android-v0.2.0` → `200`);
+
+and passes both to Gradle with `-PappVersionName` / `-PappVersionCode`. The
+debug APK is attached to the generated GitHub release, which is exactly what
+the [in-app updater](#in-app-updates) consumes. Without a tag the Gradle
+defaults apply (0.2.0 / versionCode 2).
+
+The plain `v*` tags that belong to the Termux package releases
+(`v0.40.0-termux.3`, …) do not trigger this workflow, so the two release
+trains cannot collide.
 
 ---
 
-## Installing (sideloading)
+## Installing and updating
 
-Download `app-debug.apk` from the CI artifact/release, or build it yourself.
-Then either:
+Download `app-debug.apk` from the
+[latest release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest)
+(or a CI artifact), or build it yourself. Then either:
 
 ```bash
 adb install -r android/app/build/outputs/apk/debug/app-debug.apk
@@ -162,6 +238,26 @@ the file manager/browser when Android asks.
 The app is **arm64-v8a only**. It will not install on 32-bit-only or x86
 devices; the package manager reports a missing native library / incompatible
 ABI.
+
+### Updating
+
+- **In-app:** once a release newer than the installed version is published,
+  `Settings → Updates` offers **Download update**, then **Install update**. The
+  app downloads the APK from the GitHub release and hands it to Android's
+  package installer; the system asks you to confirm. The install stops the app
+  (and the server), so reopen Tanoshi and start the server afterwards. See
+  [In-app updates](#in-app-updates).
+- **Manual:** download `app-debug.apk` from the latest release and install it
+  over the app, or use `adb install -r app-debug.apk`. Android accepts the
+  update only because every release is signed with the shared key
+  ([Signing](#signing)).
+- **From 0.1.0:** 0.1.0 was signed with a throwaway CI debug key, so 0.2.0
+  will **not** install over it ("app not installed" / signature mismatch).
+  Uninstall 0.1.0 once before installing 0.2.0. Uninstalling deletes the app's
+  private data (library, accounts, downloads) — copy `files/tanoshi/` out
+  first if you need it (see [Storage layout](#storage-layout)). This is a
+  one-time step: every later release shares the committed signing key and
+  updates in place.
 
 ---
 
@@ -199,8 +295,8 @@ The app has three screens plus an embedded browser:
 | --- | --- |
 | **Server** | Server state (`STOPPED` / `STARTING` / `RUNNING` / `STOPPING` / `ERROR`), PID, port, bind address (`127.0.0.1` or `0.0.0.0`), uptime, Start/Stop, the local URL, **Open in browser** and **Open in app**. The first-run admin dialog appears here. |
 | **Logs** | Live server stdout/stderr with timestamps and stream colouring; auto-scroll toggle; copy-all and clear. `server.log` in the data directory mirrors the same output. |
-| **Settings** | Port, "Expose on LAN", raw `config.yml` editor, notification permission, battery-optimisation exemption, and the data directory path. |
-| **Browser** | WebView pointed at the local server (JavaScript and DOM storage enabled) with Back and Reload buttons; the system back button exits the WebView before leaving the app. |
+| **Settings** | Appearance (themes), port, "Expose on LAN", raw `config.yml` editor, notification/battery permissions, in-app updates, and the storage paths. |
+| **Browser** | WebView pointed at the local server (JavaScript and DOM storage enabled) with Back and Reload buttons; the catalogue auto-loads the next page as you scroll. The system back button exits the WebView before leaving the app. |
 
 **Default port: 8080.** The advertised URL uses `127.0.0.1`; when LAN exposure
 is on, other devices on the same network can use the phone's IP address
@@ -210,6 +306,93 @@ The notification has a **Stop server** action, so you can stop the server
 without reopening the app. If you deny the notification permission on
 Android 13+, the foreground service still runs but its notification is not
 shown — keep the app icon/battery settings in mind when troubleshooting.
+
+The **Settings** screen also holds the app-only [Appearance](#themes) theme
+picker and the [Updates](#in-app-updates) section; both are described below.
+
+---
+
+## The embedded web UI
+
+The Tanoshi web UI (the same UI the Termux package serves) is compiled into
+the server binary: the wasm bundle is embedded into `libtanoshi.so`, which
+serves it over the loopback HTTP port. The app's **Open in app** screen is a
+`WebView` pointed at that URL, and **Open in browser** hands the URL to your
+browser. Both show exactly the same UI.
+
+**Catalogue infinite scroll (0.2.0).** The embedded UI was rebuilt from the
+package-3 web dist, which includes `patches/tanoshi-infinite-scroll.patch`. A
+sentinel below the catalogue grid (`catalogue-scroll-sentinel`) is watched with
+an `IntersectionObserver`: when it comes within about 600 px of the viewport,
+the next page is fetched automatically, so normally you never have to press
+anything. The **Load More** button stays as a manual fallback and changes to
+*No more results* once a source runs out of pages.
+
+Because the UI lives inside the server binary, **changing web-UI behaviour
+means rebuilding `libtanoshi.so`** (see [`native/README.md`](native/README.md))
+and shipping a new APK — rebuilding the Android app alone is not enough. The
+web UI also keeps its own Tanoshi theme; the app's [themes](#themes) affect
+only the Android UI around it.
+
+## Themes
+
+`Settings → Appearance` selects the Material 3 colour scheme for the app UI:
+
+| Theme | Notes |
+| --- | --- |
+| **Dark** (default) | Near-black blue-grey surfaces with the amber Tanoshi accent. |
+| **Light** | Warm paper surfaces with a darker amber primary; not an inverted dark scheme. |
+| **Nord** | Polar Night backgrounds, Snow Storm text and Frost/Aurora accents. |
+| **Catppuccin** | Mocha palette: base/mantle/crust surfaces with mauve, blue and peach accents. |
+
+The choice applies immediately, is persisted in `AppSettings.themeId`
+(unknown ids fall back to Dark) and also switches the system-bar icon
+contrast. It affects the Android UI only — the embedded Tanoshi web UI keeps
+its own theme.
+
+## In-app updates
+
+`Settings → Updates` shows the installed version and a **Check for updates**
+button. Tapping it asks this repository's GitHub API for releases, considers
+only published (non-draft, non-prerelease) tags starting with `android-v`, and
+compares them numerically with the installed version (debug builds carry a
+`-debug` version suffix such as `0.2.0-debug`; the updater strips it before
+comparing).
+
+When a newer release exists the section shows its version, tag, a release-notes
+excerpt and the download size, with a **Download update** button (progress
+bar). After the APK is downloaded, **Install update** hands it to Android's
+`PackageInstaller`; the system then shows its own confirmation dialog and
+replaces the app.
+
+Requirements and limitations:
+
+- **Network.** The check uses `https://api.github.com` without a token; if
+  GitHub's rate limit is hit the app shows a message and you can try again
+  later.
+- **Install permission.** Android requires the "Install unknown apps"
+  permission for Tanoshi (`REQUEST_INSTALL_PACKAGES` is declared; the user
+  grants it). Without it, the section shows a warning and an **Allow app
+  installs** button that opens the system setting.
+- **Same signing key.** Updates install only because every release is signed
+  with the shared key — see [Signing](#signing). An APK signed with another
+  key is rejected by the system.
+- **Download integrity.** The download is written to a temporary file, its
+  size is checked, and the SHA-256 is verified when the GitHub release asset
+  exposes a digest. Downloads land in the app cache and stale ones are cleared
+  first.
+- **The system installs it.** Tanoshi never installs anything silently: you
+  approve each install in the system dialog, and Android stops the app (and
+  therefore the server) while it is replaced — reopen Tanoshi and start the
+  server afterwards.
+- **Manual only.** There is no background/automatic update check, and no
+  delta or incremental update: each update is a full APK download.
+- **Channel.** Only GitHub releases of
+  [`spainclaro-debug/tanoshi-termux`](https://github.com/spainclaro-debug/tanoshi-termux/releases)
+  tagged `android-v*` are considered; there is no Play Store channel.
+- **From 0.1.0** the updater cannot help, because 0.1.0 predates it and is
+  signed with a different key — see the one-time uninstall note in
+  [Installing and updating](#installing-and-updating).
 
 ---
 
@@ -331,7 +514,7 @@ the package is `dev.spainclaro.tanoshi.debug`; the release build uses
 /data/data/<package>/files/tanoshi/      # TANOSHI_HOME
 ├── config.yml         # port, secret, absolute paths, extension timeouts
 ├── tanoshi.db         # SQLite: accounts, library, history
-├── server.log         # mirrored stdout/stderr (rotated at ~5 MB)
+├── server.log         # mirrored stdout/stderr (rotates to server.log.1 at ~5 MB)
 ├── downloads/         # downloaded chapters
 ├── cache/             # image cache
 ├── manga/             # local ("Local source") folder
@@ -346,6 +529,8 @@ Notes:
 
 - The app has `android:allowBackup="false"`, so Android does not back this
   data up. **Uninstalling deletes it** (library, accounts, downloads).
+- Downloaded update APKs are kept in the app cache (`cacheDir/updates/`),
+  outside `files/tanoshi/`; Android may clear them at any time.
 - To move data, copy the `tanoshi/` directory out of a debug build with
   `adb exec-out run-as dev.spainclaro.tanoshi.debug tar -C files -cf - tanoshi > tanoshi-data.tar`
   and push it back into a new install the same way.
@@ -357,6 +542,8 @@ Notes:
 
 The Settings screen controls the Android wrapper and the server's config:
 
+- **Appearance** — the four app themes ([Themes](#themes)).
+- **Updates** — the in-app updater ([In-app updates](#in-app-updates)).
 - **Port** — 1024–65535 (Android does not allow unprivileged apps to bind
   below 1024). The value is written to `config.yml` and remembered; the
   server must be restarted to listen on the new port.
@@ -398,8 +585,10 @@ update Tanoshi or a plugin, run the pipeline documented in
 [`native/README.md`](native/README.md):
 
 - [`native/build_tanoshi.sh`](native/build_tanoshi.sh) — clone upstream,
-  apply `patches/` + `native/patches/0001-android-app.patch`, build the wasm
-  web UI and the `aarch64-linux-android` server;
+  apply `patches/` + `native/patches/0001-android-app.patch`, embed the
+  vendored [`native/web-dist/`](native/web-dist) (the package-3 infinite-scroll
+  web UI) when the source tree has no `crates/tanoshi-web/dist`, and build the
+  `aarch64-linux-android` server;
 - [`native/build_libarchive.sh`](native/build_libarchive.sh) — cross-build the
   minimal `libarchive.so` with the NDK;
 - [`native/sync_prebuilt.sh`](native/sync_prebuilt.sh) — copy the outputs into
@@ -410,8 +599,8 @@ The root-of-repository Termux packaging (`tanoshi-termux-aarch64.tar.gz`,
 source of the bundled server binary and plugins: the Android pipeline reuses
 its patch set, vendored crate and prebuilt extension plugins, and rebuilds
 the server with the Android-app patch. Checked-in binaries can be replaced by
-re-running the scripts
-and committing `jniLibs/arm64-v8a/` — no Kotlin or Gradle change is needed.
+re-running the scripts and committing `jniLibs/arm64-v8a/` — no Kotlin or
+Gradle change is needed.
 Bit-for-bit reproducibility is not guaranteed (moving upstream extension
 refs, toolchain versions, embedded build paths); see the "Reproducibility
 caveats" section of the native guide.
@@ -440,16 +629,23 @@ caveats" section of the native guide.
   the local server works, and cleartext to other hosts stays blocked.
 - **Third-party content.** The extensions scrape third-party sites; respect
   their terms of service and your local laws.
-- **Play Store.** This is a sideloaded build. A Play Store release would need
-  the `specialUse` foreground-service declaration reviewed, a privacy policy
-  and a proper release signing key — see the open questions document.
+- **Updates come from GitHub.** The updater contacts `api.github.com` and
+  downloads release assets from this repository only. It never installs
+  anything without the system confirmation dialog, and Android only accepts an
+  APK signed with the same key as the installed app. Do not sideload APKs from
+  other sources: they will not share this key or this app's data.
+- **Shared signing key.** The committed keystore is for stable sideload
+  updates, not secrecy. It is not a Play Store signing key; a Play Store
+  release would need Play App Signing, a privacy policy and the `specialUse`
+  foreground-service declaration reviewed — see the open questions document.
 
 ---
 
 ## Troubleshooting
 
-Open the **Logs** screen first; the same output is in
-`filesDir/tanoshi/server.log` (rotate/clear from the app, capped at ~5 MB).
+Open the **Logs** screen first; the same output is appended to
+`filesDir/tanoshi/server.log`, which rotates to `server.log.1` at ~5 MB.
+Clearing the Logs screen clears the in-memory view only.
 
 **"Native library missing" / the server cannot be started.** The APK was built
 without `jniLibs` or for the wrong ABI. Confirm the APK contains all eleven
@@ -483,6 +679,29 @@ rebuild — rebuild server + plugins together.
 LAN", restart, and check the status card shows `0.0.0.0`. Make sure both
 devices are on the same network (guest Wi-Fi / AP isolation blocks this), and
 use `http://<phone-ip>:<port>`.
+
+**"Check for updates" fails.** The app queries GitHub's public API without a
+token. Temporary network problems and GitHub API rate limits both fail this
+way — wait and retry. A release is only offered when it is a published
+(non-draft, non-prerelease) `android-v*` tag with an `.apk` asset.
+
+**"Install update" says Android does not allow the app to install updates.**
+Grant "Install unknown apps" for Tanoshi (the **Allow app installs** button in
+the Updates section opens the right system screen), then press **Install
+update** again.
+
+**An update downloads but Android refuses to install it ("App not installed").**
+Most likely the installed app is signed with a different key — this is
+expected for 0.1.0 builds, which must be uninstalled once. It can also mean
+the wrong app variant/application id is installed, not enough free storage, or
+a corrupted download (delete the update and download it again). Every release
+from this repository shares the same signing key.
+
+**No update is offered although a release exists.** Check that the release is
+tagged `android-vX.Y.Z` (not a Termux `v*` tag), is not a draft or
+pre-release, has an `.apk` asset, and that its version is actually newer than
+the installed one (a local debug build can already be at or above the release
+version).
 
 **The server is killed in the background.** Exempt the app from battery
 optimisation (Settings → "Ignore battery optimisations"), then check the OEM's
@@ -533,7 +752,9 @@ and `allowBackup` is off. Copy the `tanoshi/` folder out first (see
 | Tanoshi server | 0.40.0 (`VERSION`) |
 | `tanoshi-lib` (plugin ABI) | 0.38.0 (`LIB_VERSION`) |
 | libarchive | 3.8.11 (custom minimal build; `compress-tools` 0.16.1 requires ≥ 3.2.0) |
-| App version | 0.1.0 (`versionName`), `versionCode` 1 |
+| Embedded web UI | Package-3 wasm dist (`native/web-dist/`), built with the infinite-scroll patch |
+| App version | 0.2.0 (`versionName`); `versionCode` 2 in local builds, 200 for the `android-v0.2.0` tag |
+| Signing key | `android/keystore/tanoshi-signing.jks` (alias `tanoshi`), shared by all releases |
 | Android NDK (native rebuilds only) | r26+ |
 
 The Termux package and the APK ship the same Tanoshi and extension versions;
@@ -549,14 +770,16 @@ android/
 │   ├── build.gradle.kts
 │   └── src/main/
 │       ├── AndroidManifest.xml
-│       ├── java/dev/spainclaro/tanoshi/   # app, service, admin bootstrap, Compose UI
+│       ├── java/dev/spainclaro/tanoshi/   # app, service, admin bootstrap, updater, Compose UI
 │       ├── res/                           # strings, themes, icons, network policy
 │       └── jniLibs/arm64-v8a/             # libtanoshi.so, libarchive.so, lib<plugin>.so
 ├── gradle/wrapper/                        # Gradle 8.9 wrapper
-├── native/                                # native rebuild pipeline (native/README.md)
+├── keystore/                              # shared sideload signing key + README
+├── native/                                # native pipeline + vendored web-dist
 ├── build.gradle.kts
 ├── gradle.properties
 ├── README.md                              # this file
+├── CHANGELOG.md
 ├── ASSUMPTIONS_AND_OPEN_QUESTIONS.md
 ├── gradlew
 └── settings.gradle.kts
@@ -565,6 +788,13 @@ android/
 The repository root keeps the Termux packaging (`install.sh`, `lib/`,
 `patches/`, `vendor/`, `extensions/`, the release tarball) and the CI
 workflows live in `.github/workflows/`.
+
+---
+
+## Changelog
+
+Release history lives in [`CHANGELOG.md`](CHANGELOG.md), and published APKs are
+on the [latest release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest).
 
 ---
 

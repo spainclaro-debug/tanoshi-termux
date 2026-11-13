@@ -75,8 +75,9 @@ storage). The writable `plugin_path` directory is still used for extension
 preferences.
 
 *If wrong:* plugins either fail to load or fail to persist preferences.
-There is currently no in-app "update extensions" feature; a new/updated
-plugin means a new APK.
+There is still no per-plugin update mechanism: as of 0.2.0 a new/updated
+plugin ships inside a new APK and reaches users through the in-app updater
+(A19), not through the server's extension downloader.
 
 ### A7 — The first administrator is created through GraphQL `register`
 
@@ -91,9 +92,9 @@ register in the browser.
 
 ### A8 — arm64-v8a only
 
-The only ABI shipped is `arm64-v8a` (`minSdk` 26). There is no
-`armeabi-v7a`, `x86` or `x86_64` build, and the APK is not an ABI split or
-bundle.
+The only ABI shipped is `arm64-v8a` (`minSdk` 26), pinned in
+`app/build.gradle.kts` with `ndk.abiFilters`. There is no `armeabi-v7a`,
+`x86` or `x86_64` build, and the APK is not an ABI split or bundle.
 
 *If wrong:* 32-bit-only and emulator devices cannot install the app. See Q2.
 
@@ -120,13 +121,15 @@ for a sideloaded/self-hosted app; see Q4.
 
 ### A11 — The APK is sideloaded, not distributed via Play Store
 
-The documented and CI-built artifact is the **debug** APK signed with the
-standard debug keystore (`applicationId dev.spainclaro.tanoshi.debug`).
-Release signing requires the owner's keystore; the committed release build
-type currently reuses the debug signing config only as a placeholder.
+The documented and CI-built artifact is the **debug** APK
+(`applicationId dev.spainclaro.tanoshi.debug`), signed with the committed
+shared sideload key `android/keystore/tanoshi-signing.jks` (A18). Distribution
+is GitHub releases tagged `android-v*` plus sideloading only — there is no Play
+Store channel.
 
-*If wrong:* Play distribution needs release signing, a privacy policy,
-target-SDK policy compliance and an FGS declaration review.
+*If wrong:* Play distribution would need a Play-compliant signing setup (Play
+App Signing), a privacy policy, target-SDK policy compliance and an FGS
+declaration review.
 
 ### A12 — Native libraries must be extracted from the APK
 
@@ -152,10 +155,16 @@ This must be re-checked on every native rebuild.
 
 Tanoshi's wasm web UI is embedded into the server binary; the app's "Open in
 app" screen is a `WebView` pointed at the loopback URL (JavaScript + DOM
-storage enabled), while "Open in browser" uses an `ACTION_VIEW` intent.
+storage enabled), while "Open in browser" uses an `ACTION_VIEW` intent. As of
+0.2.0 the embedded UI is the vendored `android/native/web-dist/` package-3
+dist, built with `patches/tanoshi-infinite-scroll.patch`: the catalogue
+auto-loads the next page via the `catalogue-scroll-sentinel` observer, with
+**Load More** as the manual fallback.
 
 *If wrong:* the WebView could need additional configuration for a future UI
-feature; the browser path is unaffected.
+feature; the browser path is unaffected. Note that changing web-UI behaviour
+requires rebuilding `libtanoshi.so` (and shipping a new APK), not just
+rebuilding the Android app, and that the web UI keeps its own theme.
 
 ### A15 — Data is app-private and not backed up
 
@@ -166,6 +175,10 @@ deletes the library/accounts. Moving data requires copying the
 *If wrong:* users lose their library on uninstall. This matches the Termux
 package's "back up `data/`" warning; a future export/import feature is a
 possible enhancement (see Q7).
+
+Upgrading from **0.1.0 to 0.2.0 requires exactly this one-time uninstall**
+because the signing key changed (A18); copy `files/tanoshi/` out first if the
+library matters.
 
 ### A16 — The Termux package remains authoritative for the binary
 
@@ -185,11 +198,70 @@ version; the docs tell maintainers to bump both together.
 
 The native binaries are committed, so the GitHub Actions workflow installs
 JDK 17 + Android SDK and runs `./gradlew :app:assembleDebug`; it does not
-install the NDK/Rust. CI triggers on `v*` and `android-v*` tags but attaches
-the debug APK to GitHub releases only for **`android-v*`** tags (see Q6).
+install the NDK/Rust. CI builds on pushes and pull requests, and creates a
+GitHub release (with the debug APK) only for **`android-v*`** tags; plain `v*`
+Termux package tags do not trigger the workflow at all (see Q6). For a tag,
+CI derives `versionName` from `android-vX.Y.Z` and
+`versionCode = X * 10000 + Y * 100 + Z`, passing both to Gradle with
+`-PappVersionName` / `-PappVersionCode`; local builds use the Gradle defaults
+(0.2.0 / 2).
 
 *If wrong:* if the repository owner prefers binaries rebuilt in CI, the
 workflow becomes much heavier (NDK, Rust, libarchive, wasm tooling) — see Q9.
+
+### A18 — All releases share one committed sideload signing key
+
+`android/keystore/tanoshi-signing.jks` (JKS, alias `tanoshi`, store/key
+password `tanoshi-android`) is committed on purpose. `app/build.gradle.kts`
+signs both the `debug` and `release` build types with it when the file is
+present, and falls back to the local Android debug keystore when it is not.
+This is what makes the in-app updater possible: Android only replaces an
+installed app when the new APK has the same signing key, and CI and local
+builds both need one stable signature. The key is not a secret — it protects
+nothing on a sideload-only app — it only has to stay stable.
+
+0.1.0 was built with an ephemeral CI debug key, so **0.1.0 users must
+uninstall once** before installing 0.2.0 (losing app data). Replacing the key
+for a private build has the same consequence. Details and `keytool` commands:
+[`keystore/README.md`](keystore/README.md).
+
+*If wrong:* in-app updates would fail with a signature mismatch, or users
+would have to uninstall (and lose their library) on every key change.
+
+### A19 — In-app updates are manual, full-APK downloads from GitHub releases
+
+`Settings → Updates` (`UpdateManager`) queries
+`https://api.github.com/repos/spainclaro-debug/tanoshi-termux/releases?per_page=50`
+without authentication and considers only non-draft, non-prerelease tags
+starting with `android-v` that have an `.apk` asset (preferring
+`app-debug.apk`). It compares the tag version numerically with the installed
+`versionName` (the debug `-debug` suffix is stripped), downloads the APK into
+`cacheDir/updates/` (temporary `.part` file, size checked, SHA-256 checked
+when the release asset exposes a digest), and installs it via
+`PackageInstaller` after the system confirmation dialog. This requires
+`REQUEST_INSTALL_PACKAGES` and the user-granted "Install unknown apps"
+permission; the app also needs network access and is subject to GitHub's
+unauthenticated rate limit.
+
+Deliberate limits: **no automatic/background update check**, **no silent
+install**, **no delta/incremental updates** (every update downloads the full
+APK), no Play Store channel, and only releases signed with the shared key
+(A18) can replace the app. The install stops the running app/server; the user
+reopens Tanoshi afterwards.
+
+*If wrong:* users would expect background/automatic updates; the fallback is
+a manual APK download from the release page.
+
+### A20 — The app version is independent of the Tanoshi server version
+
+The app follows its own `android-vX.Y.Z` version scheme (0.2.0 / versionCode
+2 locally; versionCode `X*10000+Y*100+Z` for tagged releases), independent of
+the bundled Tanoshi server (0.40.0 / `VERSION`) and of the Termux package
+(`PACKAGE_TAG`). An app update may or may not change the bundled server; the
+two version lines are documented separately.
+
+*If wrong:* users could mistake app releases for server/extension releases;
+the docs state both versions explicitly in the Versions table and changelog.
 
 ---
 
@@ -223,26 +295,32 @@ dialog.**
 ### Q4 — Sideload only, or Play Store?
 
 Sideload-only is assumed (debug APK, `specialUse` FGS, self-hosted scraper
-app). A Play Store release would need: a release signing key, privacy policy,
-data-safety declaration, target-SDK/FGS policy compliance (including the
-`specialUse` declaration review), and possibly removal of
-`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`. Confirm the distribution target.
+app). A Play Store release would need: a Play-compliant signing setup, privacy
+policy, data-safety declaration, target-SDK/FGS policy compliance (including
+the `specialUse` declaration review), and possibly removal of
+`REQUEST_IGNORE_BATTERY_OPTIMIZATIONS`.
+
+**Decided (owner, 2026-11-14):** sideload-only for now; GitHub releases tagged
+`android-v*` (consumed by the in-app updater, A19) are the update channel.
+A Play Store release remains out of scope.
 
 ### Q5 — Who owns the release signing key, and where does it live?
 
-The repo builds debug APKs. A production release needs the owner's keystore
-(and, if CI signs it, encrypted secrets). Once published, that key cannot be
-changed without users uninstalling (losing app data). Decide the key owner,
-alias and whether CI should ever hold it.
+**Resolved (owner, 2026-11-14):** the key lives in the repository at
+`android/keystore/tanoshi-signing.jks` (alias `tanoshi`, password
+`tanoshi-android`) and is used by CI and local builds alike, so in-app updates
+work. It is a stable sideload key, not a secret; there is no separate
+production key while the app is sideload-only. A future Play Store release
+would use Play App Signing instead. See A18 and
+[`keystore/README.md`](keystore/README.md).
 
 ### Q6 — Should app releases share the Termux package's version tags?
 
 **Resolved (owner, 2026-11-14):** no. Android releases use a distinct
-**`android-v*`** tag, starting with `android-v0.1.0` (matching the app's
-`versionName`); the Termux package keeps its `v*` tags such as
-`v0.40.0-termux.3`. The workflow still triggers a build on `v*` tags but only
-publishes a GitHub release for `android-v*`, so it can never modify or attach
-files to a Termux package release.
+**`android-v*`** tag (0.1.0, 0.2.0, ...); the Termux package keeps its `v*`
+tags such as `v0.40.0-termux.3`. The workflow triggers only on `android-v*`
+tags (plus ordinary pushes and pull requests), so a Termux tag can neither
+start it nor have files attached to its release.
 
 ### Q7 — Do you want data export/import (backup) in the app?
 
@@ -276,10 +354,12 @@ successful APK release.
 
 Plugins are frozen in the APK (A6). The upstream Tanoshi server can download
 prebuilt extensions, but upstream publishes no Android binaries, and loading
-downloaded code from app storage is forbidden on Android 10+. Options:
-ship APK updates for plugin changes, or keep the Termux-style in-server
-source rebuild (which needs Rust on device — not available in the app).
-Confirm the expected extension update story.
+downloaded code from app storage is forbidden on Android 10+.
+
+**Resolved in practice (0.2.0):** new/updated plugins ship inside a new APK and
+reach users through the in-app updater (A19), which replaces the whole app.
+There is no per-plugin update path (and no in-server source rebuild, since
+that needs a Rust toolchain on the device).
 
 ### Q12 — Is the current README default-login section still correct for the APK?
 
@@ -287,3 +367,11 @@ The root README documents `admin` / `tanoshi123` for the Termux package; the
 APK has no default account (A7). The new "Android app (no Termux)" section
 calls this out, but confirm the final user-facing wording and whether the
 Termux default login should change as well.
+
+### Q13 — Should updates be automatic or incremental?
+
+**Resolved (owner, 2026-11-14):** no. The updater is user-initiated (a
+**Check for updates** button in Settings), downloads the full release APK, and
+never installs without Android's confirmation dialog. There is no background
+update service and no delta/incremental patching — the simplest and safest
+model for a sideloaded, self-hosted app (see A19).

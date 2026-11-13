@@ -61,11 +61,34 @@ jobs:
           echo "ANDROID_HOME=$SDK_ROOT" >> "$GITHUB_ENV"
           echo "ANDROID_SDK_ROOT=$SDK_ROOT" >> "$GITHUB_ENV"
 
+      - name: Compute app version
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          NAME=""
+          CODE=""
+          if [[ "$GITHUB_REF" == refs/tags/android-v* ]]; then
+            NAME="${GITHUB_REF_NAME#android-v}"
+            IFS=. read -r MAJOR MINOR PATCH <<< "$NAME"
+            # versionCode = major*10000 + minor*100 + patch (e.g. 0.2.0 -> 200)
+            CODE=$((MAJOR * 10000 + MINOR * 100 + PATCH))
+          fi
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "Building version '${NAME:-0.2.0 (default)}' code '${CODE:-2 (default)}'"
+
       - name: Build debug APK
         working-directory: android
+        env:
+          APP_VERSION_NAME: ${{ steps.version.outputs.name }}
+          APP_VERSION_CODE: ${{ steps.version.outputs.code }}
         run: |
           chmod +x ./gradlew
-          ./gradlew :app:assembleDebug --no-daemon --stacktrace
+          NAME="${APP_VERSION_NAME:-0.2.0}"
+          CODE="${APP_VERSION_CODE:-2}"
+          ./gradlew :app:assembleDebug --no-daemon --stacktrace \
+            -PappVersionName="$NAME" -PappVersionCode="$CODE"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
@@ -88,5 +111,9 @@ jobs:
             android/app/build/outputs/apk/debug/app-debug.apk \
             --repo "$GITHUB_REPOSITORY" \
             --title "Tanoshi Android $TAG" \
-            --generate-notes \
-            --notes "Standalone arm64-v8a Android app that bundles and runs the Tanoshi server (no Termux). Debug-signed APK for sideloading: install it and register the first admin account in the app."
+            --notes "Standalone arm64-v8a Android app that bundles and runs the Tanoshi server (no Termux).
+
+Highlights of 0.2.0: catalogue infinite scroll in the embedded web UI, in-app updates (Settings -> Updates), selectable Dark/Light/Nord/Catppuccin themes, and a stable sideload signing key so updates install over older releases.
+
+Install: download app-debug.apk and sideload it, then open the app, start the server and register the first admin account. Upgrading from 0.1.0 requires a one-time uninstall (0.1.0 was signed with a different key). See android/CHANGELOG.md and android/README.md."
+

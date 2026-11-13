@@ -16,12 +16,22 @@ the same Tanoshi server and the same nine extensions as a single sideloadable
 APK — no Termux, no shell — and runs the server from a foreground service with
 an in-app web UI.
 
+The current release is **0.2.0**, available from the
+[latest release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest).
+It adds catalogue infinite scroll to the embedded web UI, an in-app updater
+(**Settings → Updates**, backed by this repository's `android-v*` GitHub
+releases) and four selectable app themes (**Settings → Appearance**: Dark,
+Light, Nord, Catppuccin). All releases are signed with the same committed key
+so the updater can install over an existing app; **0.1.0 users must uninstall
+it once first** (it used a different key, and uninstalling deletes app data).
+See [`android/CHANGELOG.md`](android/CHANGELOG.md) for details.
+
 - **No default account:** the app creates no administrator; you register the
   first admin on first run.
 - **arm64 only:** Android 8.0+ (API 26) on an arm64 / aarch64 device.
 - **Docs:** [`android/README.md`](android/README.md) covers building,
-  sideloading, first-run onboarding, settings and troubleshooting; the native
-  rebuild pipeline is in
+  sideloading, updating, first-run onboarding, themes, settings and
+  troubleshooting; the native rebuild pipeline is in
   [`android/native/README.md`](android/native/README.md).
 
 The Termux package documented below and the APK project in `android/` are two
