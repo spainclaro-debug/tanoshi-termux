@@ -22,7 +22,7 @@ extension_utils::export_extension!(register, HentaiNexus, NAME);
 const ID: i64 = 7719798645438596394;
 const NAME: &str = "HentaiNexus";
 const URL: &str = "https://hentainexus.com";
-const ICON_URL: &str = "https://hentainexus.com/favicon.ico";
+const ICON_URL: &str = "";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// `/explore/hot` is the "popular now" listing.
 const POPULAR_NOW_PATH: &str = "/explore/hot";

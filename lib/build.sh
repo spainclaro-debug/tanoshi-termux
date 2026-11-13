@@ -123,6 +123,18 @@ apply_android_patches() {
   # Two files are added by the patch set and are not produced by `git diff`.
   cp "$PKG_DIR/patches/http.rs.new" "$SRC_DIR/crates/tanoshi/src/infrastructure/http.rs"
   cp "$PKG_DIR/patches/extension-build.rs.new" "$SRC_DIR/crates/tanoshi-vm/src/extension/build.rs"
+
+  # Web UI: the catalogue auto-loads the next page while scrolling. Optional —
+  # if upstream rewrites catalogue.rs the app still works, just without it.
+  local scroll_patch="$PKG_DIR/patches/tanoshi-infinite-scroll.patch"
+  if [ -f "$scroll_patch" ]; then
+    if git -C "$SRC_DIR" apply --check --whitespace=nowarn "$scroll_patch" 2>/dev/null; then
+      git -C "$SRC_DIR" apply --whitespace=nowarn "$scroll_patch"
+      ok "infinite scroll patch applied"
+    else
+      warn "infinite scroll patch no longer applies; building without auto-load"
+    fi
+  fi
   # Register the new modules/patch anchors that the diff already handled; the
   # copies above only provide file contents.
   ok "helper sources in place"
@@ -190,6 +202,18 @@ build_extensions() {
     warn "networking helpers patch did not apply; ported extensions may fail to build"
   else
     ok "networking helpers already present"
+  fi
+
+  # Upstream icon fixes (mangadex.org returns HTML for its favicon because of
+  # a bot challenge). Optional: keep going if upstream has changed.
+  local iconpatch="$PKG_DIR/patches/extension-icons.patch"
+  if [ -f "$iconpatch" ]; then
+    if git -C "$ext_src" apply --check --whitespace=nowarn "$iconpatch" 2>/dev/null; then
+      git -C "$ext_src" apply --whitespace=nowarn "$iconpatch"
+      ok "extension icon fixes applied"
+    else
+      warn "extension icon patch no longer applies; using upstream icons"
+    fi
   fi
 
   # Copy the ported extensions into the workspace.

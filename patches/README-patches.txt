@@ -66,6 +66,20 @@ networking-helpers.patch
     GET that can send an explicit Cookie header (needed because MadaraDex's
     auth cookie is scoped to .madaradex.org and is not replayed to its CDN).
 
+tanoshi-infinite-scroll.patch
+    Applies to the Tanoshi source tree. The catalogue web UI paginates with a
+    "Load More" button; this patch adds an IntersectionObserver on a sentinel
+    below the grid so the next page is fetched automatically ~600px before the
+    reader reaches the bottom. The button stays as a manual fallback and turns
+    into "No more results" once a page comes back empty. Also enables the
+    web-sys IntersectionObserverInit feature.
+
+extension-icons.patch
+    Applies to the extensions workspace. Replaces the MangaDex icon URL:
+    mangadex.org answers every favicon path with an HTML bot-challenge page, so
+    the web UI showed a broken image. Points at the public favicon mirror
+    instead. Optional — the build continues if upstream has moved on.
+
 vendor/compress-tools-0.16.1/
     A vendored copy of the compress-tools crate with three changes, wired in via
     [patch.crates-io] in the build's cargo config:

@@ -13,7 +13,7 @@ EXTENSIONS_REPO="luigi311/tanoshi-extensions"
 GITHUB_API="https://api.github.com/repos"
 
 # Plugin names shipped with the package (order = build order).
-PLUGIN_NAMES=(mangadex guya manhwa18cc nhentai weebcentral atsumaru qiscans mangaball madaradex hentainexus)
+PLUGIN_NAMES=(mangadex guya manhwa18cc weebcentral atsumaru qiscans mangaball madaradex hentainexus)
 # Plugins that come from this package's own Rust ports.
 PORTED_PLUGINS=(atsumaru qiscans mangaball madaradex hentainexus)
 

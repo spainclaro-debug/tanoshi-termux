@@ -28,7 +28,7 @@ extension_utils::export_extension!(register, MangaBall, NAME);
 const ID: i64 = 1448906013733277368;
 const NAME: &str = "Manga Ball";
 const URL: &str = "https://mangaball.com";
-const ICON_URL: &str = "https://mangaball.com/images/logo/logo.svg";
+const ICON_URL: &str = "https://mangaball.com/images/favicon.png";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const PER_PAGE: i64 = 24;
 

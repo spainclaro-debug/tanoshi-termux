@@ -1,0 +1,13 @@
+diff --git a/extensions/mangadex/src/lib.rs b/extensions/mangadex/src/lib.rs
+index 7b6e3d6..1785fc0 100644
+--- a/extensions/mangadex/src/lib.rs
++++ b/extensions/mangadex/src/lib.rs
+@@ -15,7 +15,7 @@ const ID: i64 = 2;
+ const NAME: &str = "Mangadex";
+ const URL: &str = "https://api.mangadex.org";
+ const SITE_URL: &str = "https://mangadex.org";
+-const ICON_URL: &str = "https://mangadex.org/favicon.ico";
++const ICON_URL: &str = "https://icons.duckduckgo.com/ip3/mangadex.org.ico";
+ const VERSION: &str = env!("CARGO_PKG_VERSION");
+ // While api.mangadex.org has a rate limit of 5 requests per second
+ // The /at-home/server endpoint has a 40 requests per min limit ~= 0.66 rps

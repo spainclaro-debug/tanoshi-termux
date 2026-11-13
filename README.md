@@ -4,51 +4,10 @@ A self-contained, ready-to-run build of [Tanoshi](https://github.com/luigi311/ta
 — a self-hosted web manga reader — packaged for **Termux on Android (arm64)**.
 
 Upstream ships no Android binary (only glibc Linux, Windows and macOS), so this
-package contains a native `aarch64` Android build with ten source extensions,
+package contains a native `aarch64` Android build plus nine source extensions,
 and the patch set needed to rebuild everything on Termux.
 
-## Download
-
-| File | Size | Description |
-| --- | --- | --- |
-| [`tanoshi-termux-aarch64.tar.gz`](./tanoshi-termux-aarch64.tar.gz) | 47 MB | The complete package |
-| [`tanoshi-termux-aarch64.tar.gz.sha256`](./tanoshi-termux-aarch64.tar.gz.sha256) | — | Checksum |
-
-Newest build: see [Releases](https://github.com/spainclaro-debug/tanoshi-termux/releases).
-
-```bash
-# download, verify, extract, install
-curl -LO https://github.com/spainclaro-debug/tanoshi-termux/raw/main/tanoshi-termux-aarch64.tar.gz
-curl -LO https://github.com/spainclaro-debug/tanoshi-termux/raw/main/tanoshi-termux-aarch64.tar.gz.sha256
-sha256sum -c tanoshi-termux-aarch64.tar.gz.sha256
-tar -xzf tanoshi-termux-aarch64.tar.gz && cd tanoshi && bash install.sh
-```
-
-### Updating an existing install
-
-```bash
-cd tanoshi && bash selfupdate.sh      # pulls the newest release from this repo
-```
-
-## Repository layout
-
-The scripts, extension sources and patches are committed here as plain files so
-they can be read and diffed. The heavy artifacts — the server binary, the
-compiled plugins and the upstream Tanoshi source — are only inside
-`tanoshi-termux-aarch64.tar.gz` and the release assets, which keeps this
-repository small:
-
-| Path | What it is |
-| --- | --- |
-| `install.sh`, `update.sh`, `selfupdate.sh`, `reinstall.sh`, `uninstall.sh` | maintenance scripts |
-| `lib/` | shared shell helpers and the rebuild routine |
-| `extensions/` | the five Rust extension ports |
-| `patches/` | Android patches and their documentation |
-| `vendor/` | patched `compress-tools` crate |
-| `VERSION` / `LIB_VERSION` / `PACKAGE_TAG` | Tanoshi, tanoshi-lib and package versions |
-
 ---
-
 
 ## Default login
 
@@ -156,6 +115,14 @@ Other maintenance scripts in the same folder:
 | `bash reinstall.sh` | repair the install (keeps data) |
 | `bash uninstall.sh` | remove Tanoshi (backs up data first) |
 | `bash install.sh` | (re)run setup |
+
+### Browsing
+
+The catalogue loads the next page automatically as you scroll: a sentinel below
+the grid starts fetching when it comes within ~600px of the viewport, so the
+next batch is usually ready before you reach the bottom. The **Load More**
+button remains as a manual fallback and changes to *No more results* once a
+source runs out of pages.
 
 ### Where everything lives
 
@@ -291,14 +258,13 @@ bash install.sh --with-build-tools
 
 ## Extensions
 
-Ten sources are bundled and load automatically:
+Nine sources are bundled and load automatically:
 
 | Extension | Language | Notes |
 | --- | --- | --- |
 | Mangadex | multi | |
 | Guya | multi | |
 | Manhwa18cc | multi | NSFW |
-| nhentai | multi | NSFW; the site blocks requests without a browser User-Agent, so listing calls may fail upstream |
 | WeebCentral | en | |
 | **Atsumaru** | en | ported from Keiyoushi |
 | **QiScans** | en | ported from Keiyoushi |
@@ -306,7 +272,7 @@ Ten sources are bundled and load automatically:
 | **MadaraDex** | en | ported from Keiyoushi |
 | **HentaiNexus** | en | ported from Keiyoushi; NSFW; one chapter per gallery |
 
-The last four are **Rust ports of [Keiyoushi](https://github.com/keiyoushi/extensions)
+The last five are **Rust ports of [Keiyoushi](https://github.com/keiyoushi/extensions)
 (Tachiyomi) extensions**, rewritten against Tanoshi's plugin API. Their sources
 live in `extensions/` and the upstream ids are preserved.
 

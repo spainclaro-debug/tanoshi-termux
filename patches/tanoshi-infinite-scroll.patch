@@ -1,0 +1,214 @@
+diff --git a/crates/tanoshi-web/Cargo.toml b/crates/tanoshi-web/Cargo.toml
+index 824a8a0..4c99e15 100644
+--- a/crates/tanoshi-web/Cargo.toml
++++ b/crates/tanoshi-web/Cargo.toml
+@@ -59,6 +59,7 @@ features = [
+     "HtmlSelectElement",
+     "IntersectionObserver",
+     "IntersectionObserverEntry",
++    "IntersectionObserverInit",
+     "Location",
+     "MediaQueryList",
+     "MediaQueryListEvent",
+diff --git a/crates/tanoshi-web/src/catalogue.rs b/crates/tanoshi-web/src/catalogue.rs
+index d8614ee..f6a82fb 100644
+--- a/crates/tanoshi-web/src/catalogue.rs
++++ b/crates/tanoshi-web/src/catalogue.rs
+@@ -1,4 +1,4 @@
+-use std::rc::Rc;
++use std::{cell::RefCell, rc::Rc};
+ 
+ use crate::{
+     common::{snackbar, Cover, InputList, Spinner},
+@@ -10,14 +10,16 @@ use dominator::{clone, events, html, routing, svg, with_node, Dom, EventOptions}
+ use futures_signals::signal::{Mutable, Signal, SignalExt};
+ use futures_signals::signal_vec::{MutableVec, SignalVecExt};
+ use serde::{Deserialize, Serialize};
+-use wasm_bindgen::{JsValue, UnwrapThrowExt};
+-use web_sys::HtmlInputElement;
++use gloo_timers::callback::Timeout;
++use wasm_bindgen::prelude::Closure;
++use wasm_bindgen::{JsCast, JsValue, UnwrapThrowExt};
++use web_sys::{HtmlInputElement, IntersectionObserver, IntersectionObserverEntry};
+ 
+ pub const STORAGE_KEY: &str = "catalogue";
+ 
+ macro_rules! map_data_to_cover {
+     ($data:ident, $catalogue:ident, $field:tt) => {
+-        let covers = $data
++        let covers: Vec<Cover> = $data
+             .$field
+             .iter()
+             .map(|item| {
+@@ -33,7 +35,9 @@ macro_rules! map_data_to_cover {
+                 )
+             })
+             .collect();
++        let fetched = covers.len();
+         let mut cover_list = $catalogue.cover_list.lock_mut();
++        $catalogue.has_more.set_neq(fetched > 0);
+         if $catalogue.page.get() == 1 {
+             cover_list.replace_cloned(covers);
+         } else if $catalogue.page.get() > 0 {
+@@ -62,6 +66,14 @@ pub struct Catalogue {
+     migration_state: Mutable<Option<migration::MigrationState>>,
+     #[serde(skip)]
+     pending_migration: Mutable<Option<Cover>>,
++    /// False once a page came back empty, so auto-loading stops at the end.
++    has_more: Mutable<bool>,
++    #[serde(skip)]
++    scroll_observer: RefCell<Option<IntersectionObserver>>,
++    #[serde(skip)]
++    scroll_observer_callback: RefCell<Option<Closure<dyn FnMut(js_sys::Array, IntersectionObserver)>>>,
++    #[serde(skip)]
++    scroll_sentinel: RefCell<Option<web_sys::HtmlElement>>,
+ }
+ 
+ impl Default for Catalogue {
+@@ -80,6 +92,10 @@ impl Default for Catalogue {
+             loader: AsyncLoader::new(),
+             migration_state: Mutable::new(None),
+             pending_migration: Mutable::new(None),
++            has_more: Mutable::new(true),
++            scroll_observer: RefCell::new(None),
++            scroll_observer_callback: RefCell::new(None),
++            scroll_sentinel: RefCell::new(None),
+         }
+     }
+ }
+@@ -384,6 +400,89 @@ impl Catalogue {
+         })
+     }
+ 
++    /// Load the next page when the sentinel nears the viewport.
++    fn maybe_autoload(catalogue: Rc<Self>) {
++        // Never stack requests, and stop at the end of the listing.
++        if catalogue.spinner.active.get() || !catalogue.has_more.get() {
++            return;
++        }
++        // The very first page is fetched by render(); nothing to append yet.
++        if catalogue.cover_list.lock_ref().is_empty() {
++            return;
++        }
++
++        catalogue.page.set(catalogue.page.get() + 1);
++        Self::fetch_mangas(catalogue.clone());
++
++        // A short page may leave the sentinel inside the viewport, and
++        // IntersectionObserver only reports crossings. Nudge it to re-evaluate.
++        let weak_catalogue = Rc::downgrade(&catalogue);
++        Timeout::new(1200, move || {
++            if let Some(catalogue) = weak_catalogue.upgrade() {
++                Self::recheck_scroll_sentinel(&catalogue);
++            }
++        })
++        .forget();
++    }
++
++    fn recheck_scroll_sentinel(catalogue: &Rc<Self>) {
++        let observer = catalogue.scroll_observer.borrow();
++        let sentinel = catalogue.scroll_sentinel.borrow();
++        if let (Some(observer), Some(sentinel)) = (observer.as_ref(), sentinel.as_ref()) {
++            observer.unobserve(sentinel);
++            observer.observe(sentinel);
++        }
++    }
++
++    fn observe_scroll_sentinel(catalogue: Rc<Self>, sentinel: web_sys::HtmlElement) {
++        if let Some(observer) = catalogue.scroll_observer.borrow_mut().take() {
++            observer.disconnect();
++        }
++        catalogue.scroll_observer_callback.borrow_mut().take();
++
++        let weak_catalogue = Rc::downgrade(&catalogue);
++        let callback = Closure::wrap(Box::new(
++            move |entries: js_sys::Array, _observer: IntersectionObserver| {
++                let is_intersecting = entries.iter().any(|entry| {
++                    entry
++                        .dyn_into::<IntersectionObserverEntry>()
++                        .ok()
++                        .is_some_and(|entry| entry.is_intersecting())
++                });
++
++                if is_intersecting
++                    && let Some(catalogue) = weak_catalogue.upgrade()
++                {
++                    Self::maybe_autoload(catalogue);
++                }
++            },
++        ) as Box<dyn FnMut(js_sys::Array, IntersectionObserver)>);
++
++        // Start loading 600px early so the next page is usually ready by the
++        // time the user reaches the bottom.
++        let options = web_sys::IntersectionObserverInit::new();
++        options.set_root_margin("600px");
++
++        let observer = IntersectionObserver::new_with_options(
++            callback.as_ref().unchecked_ref(),
++            &options,
++        )
++        .or_else(|_| IntersectionObserver::new(callback.as_ref().unchecked_ref()));
++
++        let observer = match observer {
++            Ok(observer) => observer,
++            Err(error) => {
++                warn!("failed to observe catalogue scroll sentinel: {error:?}");
++                return;
++            }
++        };
++
++        observer.observe(sentinel.unchecked_ref());
++        *catalogue.scroll_observer_callback.borrow_mut() = Some(callback);
++        *catalogue.scroll_observer.borrow_mut() = Some(observer);
++        *catalogue.scroll_sentinel.borrow_mut() = Some(sentinel);
++    }
++
+     fn is_migrate_mode(&self) -> bool {
+         self.migration_state
+             .get_cloned()
+@@ -454,22 +553,40 @@ impl Catalogue {
+                     })))
+                 }),
+ 
++                // The next page loads automatically as this sentinel scrolls into
++                // view; the button stays as a manual fallback and reports the end.
+                 html!("div", {
+                     .class("load-more-btn")
+-                    .child_signal(catalogue.spinner.signal().map(clone!(catalogue => move |x| {
+-                        if x {
++                    .child_signal(catalogue.spinner.signal().map(clone!(catalogue => move |loading| {
++                        if loading {
+                             Some(Spinner::render(catalogue.spinner.clone()))
+                         } else {
+                             Some(html!("button", {
+-                                .text("Load More")
++                                .text_signal(catalogue.has_more.signal().map(|more| {
++                                    if more { "Load More" } else { "No more results" }
++                                }))
++                                .attr_signal("disabled", catalogue.has_more.signal().map(|more| {
++                                    if more { None } else { Some("true") }
++                                }))
+                                 .event(clone!(catalogue => move |_: events::Click| {
+-                                    catalogue.page.set(catalogue.page.get() + 1);
+-                                    Self::fetch_mangas(catalogue.clone());
++                                    if catalogue.has_more.get() {
++                                        catalogue.page.set(catalogue.page.get() + 1);
++                                        Self::fetch_mangas(catalogue.clone());
++                                    }
+                                 }))
+                             }))
+                         }
+                     })))
+                 }),
++                html!("div" => web_sys::HtmlElement, {
++                    .attr("id", "catalogue-scroll-sentinel")
++                    .attr("aria-hidden", "true")
++                    .style("width", "100%")
++                    .style("height", "1px")
++                    .after_inserted(clone!(catalogue => move |sentinel| {
++                        Self::observe_scroll_sentinel(catalogue, sentinel);
++                    }))
++                }),
+             ])
+         })
+     }

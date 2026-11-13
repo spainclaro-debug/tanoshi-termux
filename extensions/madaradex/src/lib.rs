@@ -25,7 +25,7 @@ extension_utils::export_extension!(register, MadaraDex, NAME);
 const ID: i64 = 2136088453725931591;
 const NAME: &str = "MadaraDex";
 const URL: &str = "https://madaradex.org";
-const ICON_URL: &str = "https://madaradex.org/favicon.ico";
+const ICON_URL: &str = "https://madaradex.org/wp-content/uploads/cropped-logo.png";
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 /// MadaraDex lists items under `/title/` (the theme's `mangaSubString`).
 const MANGA_SUBSTRING: &str = "title";
