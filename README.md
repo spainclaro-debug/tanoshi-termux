@@ -7,39 +7,190 @@ Upstream ships no Android binary (only glibc Linux, Windows and macOS), so this
 package contains a native `aarch64` Android build plus nine source extensions,
 and the patch set needed to rebuild everything on Termux.
 
+> This repository also ships a **standalone Android app** that runs the same
+> server without Termux — see [Android app (no Termux)](#android-app-no-termux)
+> below.
+
 ---
 
 ## Android app (no Termux)
 
-A standalone Android app lives in [`android/`](android/README.md). It bundles
-the same Tanoshi server and the same nine extensions as a single sideloadable
-APK — no Termux, no shell — and runs the server from a foreground service with
-an in-app web UI.
+[`android/`](android/README.md) contains a complete standalone Android app that
+runs the same Tanoshi server **inside the APK** — no Termux, no shell, no
+external runtime. It is the easiest way to run Tanoshi on a phone: install one
+APK, tap **Start server**, and open the web UI.
 
-The current release is **0.3.0**, available from the
-[latest release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest).
-It adds a **Share on your network** QR code on the Server screen (share the web
-UI with another device on the same Wi-Fi via Expose on LAN), fixes saving the
-port before the first server start, and publishes the sideload APK as
-`tanoshi-mobile-server-release-<yyyy-MM-dd>.apk` (UTC date in CI). It also
-includes the 0.2.0 features: catalogue infinite scroll, an in-app updater
-(**Settings → Updates**, backed by this repository's `android-v*` GitHub
-releases) and four selectable app themes (**Settings → Appearance**: Dark,
-Light, Nord, Catppuccin). All releases are signed with the same committed key
-so the updater can install over an existing app; **0.1.0 users must uninstall
-it once first** (it used a different key, and uninstalling deletes app data).
-See [`android/CHANGELOG.md`](android/CHANGELOG.md) for details.
+The app bundles Tanoshi **0.40.0** and the nine source extensions (MangaDex,
+Guya, WeebCentral, Atsumaru, QiScans, MangaBall, MadaraDex, Manhwa18cc,
+HentaiNexus). The current release is **0.3.0**; download it from the
+[latest release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest)
+(asset: `tanoshi-mobile-server-release-<yyyy-MM-dd>.apk`).
 
-- **No default account:** the app creates no administrator; you register the
-  first admin on first run.
-- **arm64 only:** Android 8.0+ (API 26) on an arm64 / aarch64 device.
-- **Docs:** [`android/README.md`](android/README.md) covers building,
-  sideloading, updating, first-run onboarding, themes, QR sharing, settings
-  and troubleshooting; the native rebuild pipeline is in
-  [`android/native/README.md`](android/native/README.md).
+> The Termux package documented below and the Android app in `android/` are two
+> independent ways to run the same server. You only need one of them.
 
-The Termux package documented below and the APK project in `android/` are two
-independent ways to run the same server.
+### Requirements
+
+| | |
+| --- | --- |
+| Android | 8.0 (API 26) or newer |
+| CPU | **arm64 / aarch64 only** (all modern phones; 32-bit and x86 are not supported) |
+| Storage | ~120 MB installed for the app (bundled server + plugins), plus room for your library, downloads and cache |
+| Network | Internet for source browsing/downloads; Wi-Fi or Ethernet for sharing to other devices |
+| Permissions | Notifications, and "install unknown apps" when you use in-app updates |
+
+### Install
+
+1. Open the
+   [latest Android release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest)
+   and download `tanoshi-mobile-server-release-<date>.apk`.
+2. Allow your browser or file manager to install unknown apps, open the APK and
+   install it.
+3. Launch **Tanoshi** and allow notifications (this is the ongoing
+   background-server notification).
+4. On the **Server** tab, tap **Start server**.
+
+Releases are signed with the same committed sideload key, so new versions
+install over an existing install (see [Updating](#updating-the-app)). If you
+still have 0.1.0, uninstall it once first — it used a different key.
+
+### First run: create the admin account
+
+The Android app has **no default account** (unlike the Termux package below).
+When the server is running, the app offers to create the first administrator
+(username and password; it uses Tanoshi's `register` GraphQL mutation). You can
+also tap **Skip** and register from the web UI instead. Log in with that
+account — the session is kept by the embedded browser.
+
+### What it can do
+
+**Run and supervise the server**
+
+- Runs the bundled Tanoshi server as a **foreground service**: persistent
+  notification with a **Stop server** action, partial WakeLock, and the server
+  keeps running when you leave the app or swipe it from recents.
+- **Server dashboard**: state (stopped/starting/running/stopping/error), PID,
+  port, bind address, uptime and the last error, with one-tap start/stop.
+- **Logs** tab: live stdout/stderr from the server, follow-output toggle, copy
+  all and clear; the same output is mirrored to `server.log` (rotated at 5 MB).
+- Resumes the server after an Android service restart if it was running.
+
+**Use the full Tanoshi web UI**
+
+- **Open in app**: an embedded WebView pointing at `http://127.0.0.1:<port>`.
+- **Open in browser**: hands the loopback URL to your normal browser.
+- This is the real Tanoshi frontend (catalogue, library, reader, downloads,
+  sources, trackers, settings). It includes the **infinite-scroll catalogue**:
+  the next page loads automatically ~600 px before the bottom, and the button
+  changes to *No more results* at the end.
+
+**Share the server with other devices**
+
+- Turn on **Settings → Network → Expose on LAN** (binds `0.0.0.0` instead of
+  loopback) and restart the server.
+- The **Server** tab then shows a **Share on your network** card: a QR code for
+  `http://<host-ip>:<port>`, the host **IP and port** below it, and a copy
+  button. Scan the QR from another device on the same Wi-Fi/Ethernet network
+  and Tanoshi opens in that device's browser.
+- The QR only appears when the server is actually running and bound to the LAN;
+  on guest/isolated Wi-Fi it may not be reachable even though the QR scans.
+
+**Configure everything**
+
+| Where | What you can do |
+| --- | --- |
+| **Settings → Server** | Change the HTTP **port** (1024–65535; restart to apply). Saving works even before the first server start. |
+| **Settings → Network** | **Expose on LAN** toggle, with a plain-HTTP warning; the new bind is used on the next start. |
+| **Settings → Config** | View and edit the full `config.yml` (paths, secret, update interval, trackers, local folders, download/cache paths). Changes are validated and need a server restart. |
+| **Settings → Appearance** | **Dark** (default), **Light**, **Nord** and **Catppuccin** Material 3 themes, applied instantly and remembered. This themes the app UI only; the Tanoshi web UI keeps its own theme. |
+| **Settings → Updates** | Check for updates, read the release notes, download the new APK with a progress bar and install it (SHA-256 verified when GitHub exposes an asset digest; the system installer still asks for confirmation). |
+| **Settings → Permissions** | Notification permission and "ignore battery optimisations" shortcut. |
+| **Settings → Storage** | Show/copy the data directory and server log path. |
+
+**Storage and data**
+
+Everything lives in the app's private storage under `filesDir/tanoshi/`:
+
+```
+files/tanoshi/
+├── config.yml      # server configuration (port, secret, paths, trackers)
+├── tanoshi.db      # SQLite database: accounts, library, history, progress
+├── downloads/      # downloaded chapters
+├── cache/          # image cache
+├── manga/          # "Local" source folder — put your own manga here
+├── plugins/        # extension preferences (plugins themselves are in the APK)
+└── server.log      # server log, rotated to server.log.1 at 5 MB
+```
+
+The bundled extensions are read-only inside the APK and cannot be installed or
+updated from Tanoshi's web UI; new/updated plugins arrive with a new app
+release. Data survives app updates but is **deleted when you uninstall** the
+app (there is no export feature yet), so keep your own backups if needed.
+
+### Updating the app
+
+- **In-app**: **Settings → Updates → Check for updates**. The app reads this
+  repository's GitHub releases (only tags like `android-v0.3.0`), compares the
+  version, downloads the release APK, verifies it when a digest is available and
+  opens the system installer. You must allow "install unknown apps" once and
+  confirm the install prompt.
+- **Manual**: download `tanoshi-mobile-server-release-<date>.apk` from the
+  [latest release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest)
+  and install it over the existing app.
+- Updates come from **published releases**, not from every commit: a new app
+  version is released by pushing an `android-vX.Y.Z` tag, which the
+  [CI workflow](.github/workflows/android-apk.yml) builds and publishes.
+- If Android reports a signature mismatch, you are coming from 0.1.0 (whose
+  throwaway CI key differed): uninstall once, then install the new APK.
+
+### Security notes
+
+- By default the server is reachable **only from the phone** (loopback). LAN
+  mode exposes it to every device on your network.
+- There is **no TLS**: LAN traffic, including your Tanoshi password, is plain
+  HTTP. Only enable LAN mode on a network you trust and never expose the port
+  to the internet.
+- The APK is debug-signed and distributed as a **sideload** build (no Play
+  Store, no automatic updates except the manual in-app updater).
+- The app stores no analytics and talks only to the Tanoshi sources you use,
+  plus GitHub when you check for updates.
+
+### Limitations and troubleshooting
+
+| Symptom | What to do |
+| --- | --- |
+| Server stops when the screen sleeps | Open **Settings → Permissions → Ignore battery optimisations** and exempt Tanoshi from your OEM's battery saver. |
+| "Port already in use" / server won't start | Pick a different port in **Settings → Server** and restart. |
+| No QR code on the Server tab | Enable **Expose on LAN**, restart the server, and make sure the phone is on Wi-Fi/Ethernet (not just mobile data). |
+| QR scans but the other device can't connect | Guest Wi-Fi / client isolation or a VPN is blocking it; both devices must be on the same network. Use the shown `IP:port` in a browser to test. |
+| Old versions: error saving the port (`config.yml.tmp`, `ENOENT`) | Fixed in 0.3.0 — update the app. |
+| Update check fails | Needs network access; GitHub rate limits can apply. Download the APK from the release page manually. |
+| Plugins missing / a source disappeared | The app ships a fixed set of plugins; check the Logs tab and update to the latest app release. |
+| Other problems | **Logs** tab and `server.log`; full troubleshooting in [`android/README.md`](android/README.md#troubleshooting). |
+
+### Building the Android app
+
+The project is a normal Gradle/Android Studio project in `android/` (JDK 17,
+AGP 8.7.3, compileSdk 35). Native binaries (Tanoshi server, `libarchive.so`,
+the nine plugins) are prebuilt and checked into `jniLibs/`:
+
+```bash
+cd android
+./gradlew :app:assembleDebug
+# -> app/build/outputs/apk/debug/tanoshi-mobile-server-release-<date>.apk
+```
+
+The CI workflow builds the APK on every push and publishes it for
+`android-v*` tags. To rebuild the native server or plugins, follow
+[`android/native/README.md`](android/native/README.md).
+
+### More
+
+- Full app documentation: [`android/README.md`](android/README.md)
+- Changelog: [`android/CHANGELOG.md`](android/CHANGELOG.md)
+- Assumptions and open questions:
+  [`android/ASSUMPTIONS_AND_OPEN_QUESTIONS.md`](android/ASSUMPTIONS_AND_OPEN_QUESTIONS.md)
+- Releases: <https://github.com/spainclaro-debug/tanoshi-termux/releases>
 
 ---
 
