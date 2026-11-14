@@ -44,6 +44,15 @@ import kotlinx.coroutines.withTimeoutOrNull
  * [ServerStateRepository] and the on-disk log, probes the HTTP port until the
  * server answers, and keeps the process alive with a partial wake lock.
  *
+ * Two best-effort mitigations against the Android 12+ "phantom process" killer
+ * and OEM task killers are applied while the server runs:
+ *  - the foreground service additionally declares the `mediaPlayback` type and
+ *    a hidden, inaudible [SilentKeepAlive] loop keeps an audio path active;
+ *  - a watchdog restarts a killed server process a bounded number of times
+ *    instead of giving up at the first unexpected exit (see
+ *    [MAX_AUTO_RESTARTS] and [AUTO_RESTART_WINDOW_MS]).
+ * Neither is a guarantee — see the comments on the helpers below.
+ *
  * Only the companion [start]/[stop]/[restart] entry points and the
  * [ServerStateRepository] flows are part of the public contract; the UI never
  * needs to bind to the service.
@@ -90,6 +99,20 @@ class TanhoshiService : Service() {
 
     private lateinit var logWriter: ServerLogWriter
 
+    /**
+     * Hidden silent-audio loop that keeps the app in a media-playback state
+     * while the server runs (on top of the partial wake lock). Best effort.
+     */
+    private lateinit var silentKeepAlive: SilentKeepAlive
+
+    /**
+     * Timestamps ([SystemClock.elapsedRealtime]) of the automatic restarts the
+     * watchdog performed, used to enforce a rolling restart budget of at most
+     * [MAX_AUTO_RESTARTS] within [AUTO_RESTART_WINDOW_MS]. Guarded by
+     * [stateLock].
+     */
+    private val autoRestartTimestamps = ArrayDeque<Long>()
+
     @Volatile
     private var foregroundActive = false
 
@@ -104,6 +127,7 @@ class TanhoshiService : Service() {
         AppSettings.init(applicationContext)
         createNotificationChannel()
         logWriter = ServerLogWriter.forContext(this)
+        silentKeepAlive = SilentKeepAlive(this)
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -166,6 +190,9 @@ class TanhoshiService : Service() {
             runCatching { process.destroy() }
             runCatching { if (process.isAlive) process.destroyForcibly() }
         }
+        // Terminal path: the silent keep-alive must not outlive the service.
+        // Stop it before closing the log writer so the SYSTEM line is mirrored.
+        stopSilentKeepAlive()
         runCatching { logWriter.close() }
         releaseWakeLock()
         synchronized(notificationLock) {
@@ -254,6 +281,7 @@ class TanhoshiService : Service() {
             )
         }
         acquireWakeLock()
+        startSilentKeepAlive(generation)
         runJob = serviceScope.launch { runServer(generation) }
         showState(RunState.STARTING)
     }
@@ -303,7 +331,8 @@ class TanhoshiService : Service() {
                 if (!destroyed) startInternalLocked()
             }
         } else {
-            releaseWakeLock()
+            // Terminal user-initiated stop: no wake lock / keep-alive audio.
+            releaseKeepAliveAndWakeLock()
             stopForegroundAndSelf()
         }
     }
@@ -638,16 +667,53 @@ class TanhoshiService : Service() {
             else -> "The Tanoshi server exited unexpectedly (exit code $exitCode); " +
                 "see the log for details"
         }
-        // The server is not restartable by itself: surface the error and make
-        // sure a sticky service restart does not resurrect it behind the
-        // user's back.
+
+        // Watchdog: the native server child process can be killed while the app
+        // process itself survives (Android 12+ "phantom process" killer, OEM
+        // task cleaners, low-memory kills). If the user still wants the server
+        // running, restart it a few times within a rolling window instead of
+        // giving up at the first unexpected exit. Best effort and bounded so a
+        // crash loop cannot spin forever.
+        if (AppSettings.serverShouldRun) {
+            val attempt = tryReserveAutoRestart()
+            if (attempt != null) {
+                logSystem(
+                    "The Tanoshi server process was killed; restarting it automatically " +
+                        "(attempt $attempt/$MAX_AUTO_RESTARTS, in " +
+                        "${AUTO_RESTART_DELAY_MS / 1000} s)",
+                )
+                // Deliberately keep the foreground service, the wake lock and
+                // the silent keep-alive audio alive while waiting for the
+                // restart: staying alive is the whole point.
+                ServerStateRepository.update {
+                    it.copy(
+                        state = RunState.STARTING,
+                        pid = null,
+                        startedAtMillis = null,
+                        lastError = message,
+                    )
+                }
+                showState(RunState.STARTING)
+                scheduleAutoRestart(generation)
+                return
+            }
+            val attemptsUsed = autoRestartAttemptsInWindow()
+            logSystem(
+                "The Tanoshi server process was killed; giving up automatic restarts " +
+                    "($attemptsUsed/$MAX_AUTO_RESTARTS attempts within " +
+                    "${AUTO_RESTART_WINDOW_MS / 60_000} min)",
+            )
+        }
+
+        // Terminal failure: surface the error and make sure a sticky service
+        // restart does not resurrect the server behind the user's back.
         AppSettings.serverShouldRun = false
         ServerStateRepository.update {
             it.copy(state = RunState.ERROR, pid = null, startedAtMillis = null, lastError = message)
         }
         showState(RunState.ERROR, message)
         logSystem(message)
-        releaseWakeLock()
+        releaseKeepAliveAndWakeLock()
         stopForegroundAndSelf()
     }
 
@@ -723,7 +789,7 @@ class TanhoshiService : Service() {
         }
         showState(RunState.ERROR, message)
         logSystem(message)
-        releaseWakeLock()
+        releaseKeepAliveAndWakeLock()
         stopForegroundAndSelf()
     }
 
@@ -760,6 +826,112 @@ class TanhoshiService : Service() {
     }
 
     // -----------------------------------------------------------------------
+    // Silent keep-alive + auto-restart watchdog
+    // -----------------------------------------------------------------------
+
+    /**
+     * Starts the hidden silent-audio keep-alive for [generation].
+     *
+     * The work is dispatched to [serviceScope] because [SilentKeepAlive.start]
+     * writes the WAV file and prepares a `MediaPlayer` — and
+     * [startInternalLocked] is also called from `onStartCommand`, i.e. on the
+     * main thread. Failures are logged and ignored: the server must run without
+     * the keep-alive.
+     */
+    private fun startSilentKeepAlive(generation: Int) {
+        serviceScope.launch {
+            if (isStale(generation)) return@launch
+            val wasPlaying = runCatching { silentKeepAlive.isPlaying }.getOrDefault(false)
+            runCatching { silentKeepAlive.start() }
+            // A stop may have been requested while the WAV file was generated
+            // or the player prepared; make sure the audio does not outlive it.
+            if (isStale(generation)) {
+                silentKeepAlive.stop()
+                return@launch
+            }
+            when {
+                silentKeepAlive.isPlaying && !wasPlaying ->
+                    logSystem("Background keep-alive audio started (silent, volume 0)")
+
+                !silentKeepAlive.isPlaying ->
+                    logSystem("Background keep-alive audio could not start; continuing without it")
+            }
+        }
+    }
+
+    /** Stops the silent keep-alive; idempotent and never throws. */
+    private fun stopSilentKeepAlive() {
+        val wasPlaying = runCatching { silentKeepAlive.isPlaying }.getOrDefault(false)
+        runCatching { silentKeepAlive.stop() }
+        if (wasPlaying) logSystem("Background keep-alive audio stopped")
+    }
+
+    /** Releases both pieces of runtime assistance: silent audio + wake lock. */
+    private fun releaseKeepAliveAndWakeLock() {
+        stopSilentKeepAlive()
+        releaseWakeLock()
+    }
+
+    /**
+     * Reserves one automatic restart from the rolling watchdog budget.
+     *
+     * @return the attempt number (`1..MAX_AUTO_RESTARTS`) when a restart is
+     *   allowed, or `null` when the budget is exhausted for the current window.
+     */
+    private fun tryReserveAutoRestart(): Int? {
+        var attempt: Int? = null
+        synchronized(stateLock) {
+            val now = SystemClock.elapsedRealtime()
+            pruneAutoRestartTimestampsLocked(now)
+            if (autoRestartTimestamps.size < MAX_AUTO_RESTARTS) {
+                autoRestartTimestamps.addLast(now)
+                attempt = autoRestartTimestamps.size
+            }
+        }
+        return attempt
+    }
+
+    /** Number of automatic restarts already used within the current window. */
+    private fun autoRestartAttemptsInWindow(): Int {
+        var attempts = 0
+        synchronized(stateLock) {
+            pruneAutoRestartTimestampsLocked(SystemClock.elapsedRealtime())
+            attempts = autoRestartTimestamps.size
+        }
+        return attempts
+    }
+
+    /** Caller must hold [stateLock]. */
+    private fun pruneAutoRestartTimestampsLocked(nowMillis: Long) {
+        while (autoRestartTimestamps.isNotEmpty() &&
+            nowMillis - autoRestartTimestamps.first() > AUTO_RESTART_WINDOW_MS
+        ) {
+            autoRestartTimestamps.removeFirst()
+        }
+    }
+
+    /**
+     * Schedules the watchdog restart after [AUTO_RESTART_DELAY_MS].
+     *
+     * The delay also gives the current [runServer] coroutine time to finish, so
+     * [startInternalLocked] (which refuses to start while [runJob] is active)
+     * can do its work. All stop/start state is re-checked under [stateLock] when
+     * the delay expires, so a user-requested stop/restart in the meantime wins.
+     */
+    private fun scheduleAutoRestart(generation: Int) {
+        serviceScope.launch {
+            delay(AUTO_RESTART_DELAY_MS)
+            synchronized(stateLock) {
+                if (destroyed) return@synchronized
+                if (isStaleLocked(generation)) return@synchronized
+                if (!AppSettings.serverShouldRun) return@synchronized
+                if (runJob?.isActive == true) return@synchronized
+                startInternalLocked()
+            }
+        }
+    }
+
+    // -----------------------------------------------------------------------
     // Foreground notification
     // -----------------------------------------------------------------------
 
@@ -778,12 +950,27 @@ class TanhoshiService : Service() {
         manager.createNotificationChannel(channel)
     }
 
-    private fun foregroundServiceType(): Int =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE
-        } else {
-            0
-        }
+    /**
+     * Foreground-service types. Must be a subset of the service declaration in
+     * `AndroidManifest.xml` (`specialUse|mediaPlayback`):
+     *  - `mediaPlayback` is what keeps the app in a media-playback FGS while
+     *    [SilentKeepAlive] loops inaudible audio, which makes Android/OEMs much
+     *    less likely to kill the app and its native server child processes.
+     *  - `specialUse` describes the actual self-hosted-server use case (and
+     *    avoids the 6-hour `dataSync` cap).
+     * `FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK` exists since API 29,
+     * `FOREGROUND_SERVICE_TYPE_SPECIAL_USE` since API 34.
+     */
+    private fun foregroundServiceType(): Int = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE ->
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE or
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q ->
+            ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK
+
+        else -> 0
+    }
 
     private fun showState(state: RunState, error: String? = null) {
         synchronized(notificationLock) {
@@ -932,6 +1119,15 @@ class TanhoshiService : Service() {
         private const val FORCE_KILL_TIMEOUT_MS = 3_000L
         private const val STOP_POLL_INTERVAL_MS = 100L
         private const val STOP_JOIN_TIMEOUT_MS = 20_000L
+
+        /** Watchdog: at most this many automatic restarts of a killed server. */
+        private const val MAX_AUTO_RESTARTS = 5
+
+        /** Watchdog: rolling window in which [MAX_AUTO_RESTARTS] are allowed. */
+        private const val AUTO_RESTART_WINDOW_MS = 10L * 60L * 1000L
+
+        /** Watchdog: delay before each restart so a crash loop backs off. */
+        private const val AUTO_RESTART_DELAY_MS = 3_000L
 
         private const val REQUEST_OPEN_APP = 1
         private const val REQUEST_STOP_SERVER = 2

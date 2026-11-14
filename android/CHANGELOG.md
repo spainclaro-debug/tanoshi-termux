@@ -3,7 +3,7 @@
 All notable changes to the standalone Android app in `android/`. The app is
 versioned independently of the upstream Tanoshi server it bundles (currently
 Tanoshi **0.40.0**) and is released as GitHub releases tagged **`android-vX.Y.Z`**
-(for example `android-v0.3.0`). The Termux package in the repository root has
+(for example `android-v0.4.0`). The Termux package in the repository root has
 its own `PACKAGE_TAG` and `v*` release tags.
 
 Versioning: local/Gradle builds default to the version in
@@ -15,6 +15,52 @@ named `tanoshi-mobile-server-release-<yyyy-MM-dd>.apk`, where the date is the
 UTC build date in CI (via `-PapkDate`) and the local date otherwise.
 
 ---
+
+## 0.4.0
+
+### Added
+
+- **Hidden silent-audio keep-alive.** While the server runs, the service loops
+  a generated one-second silent WAV (`cacheDir/keepalive/silence.wav`, 44.1 kHz
+  16-bit mono PCM, ~88 KB, nothing bundled with the APK) through `MediaPlayer`
+  at **volume 0**, with media audio attributes and a partial wake mode. No
+  MediaSession, no audio-focus request, no media-style/extra notification — the
+  only notification is still the normal server one. Intent: keep the app in a
+  media-playback foreground state so Android/OEMs are less likely to freeze or
+  kill the app and its native server child processes. This is a best-effort
+  mitigation, not a guarantee, and it adds a small continuous battery cost. It
+  starts/stops with the server; there is no toggle. Failures are logged and the
+  server keeps running without it.
+- **Auto-restart watchdog.** If the server process exits unexpectedly while
+  the user still wants it running, the service keeps the foreground
+  notification, wake lock and silent audio alive and restarts the server: at
+  most **5 times in a rolling 10-minute window**, about **3 s** apart. The
+  dashboard shows `STARTING` and the log records each attempt
+  (`restarting it automatically (attempt N/5, in 3 s)`). A user-requested
+  Stop/Restart cancels it. After the budget is exhausted the app records the
+  attempts, shows `ERROR`, releases the wake lock/audio and stops the
+  foreground service.
+
+### Changed
+
+- The foreground service now declares and starts as
+  **`specialUse|mediaPlayback`** (Android 14+; `mediaPlayback` on Android
+  10–13, no type on older releases) and adds the
+  `FOREGROUND_SERVICE_MEDIA_PLAYBACK` permission for the silent keep-alive.
+- **Version 0.4.0:** `versionCode` 4 in the Gradle default; the
+  `android-v0.4.0` tag produces `versionCode` 400. The APK filename scheme is
+  unchanged (`tanoshi-mobile-server-release-<yyyy-MM-dd>.apk`).
+
+### Documented
+
+- The Android 12+ **phantom-process killer** is not exempted by media
+  playback. The docs now describe how to recognise it (`adb logcat -s
+  ActivityManager` → `Killing PhantomProcessRecord` / `excessive cpu`), the
+  recommended device-side workarounds (Developer options **Disable child
+  process restrictions**; ADB `settings put global
+  settings_enable_monitor_phantom_procs false` on Android 12, or
+  `device_config put activity_manager max_phantom_processes 2147483647` on
+  Android 12L+) and the trade-offs.
 
 ## 0.3.0
 

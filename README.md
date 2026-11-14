@@ -22,9 +22,12 @@ APK, tap **Start server**, and open the web UI.
 
 The app bundles Tanoshi **0.40.0** and the nine source extensions (MangaDex,
 Guya, WeebCentral, Atsumaru, QiScans, MangaBall, MadaraDex, Manhwa18cc,
-HentaiNexus). The current release is **0.3.0**; download it from the
+HentaiNexus). The current release is **0.4.0**; download it from the
 [latest release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest)
-(asset: `tanoshi-mobile-server-release-<yyyy-MM-dd>.apk`).
+(asset: `tanoshi-mobile-server-release-<yyyy-MM-dd>.apk`, unchanged name).
+0.4.0 adds a hidden silent-audio keep-alive and an auto-restart watchdog so
+the background server survives Android/OEM killing more often — see
+[Keeping the server alive in the background](#keeping-the-server-alive-in-the-background).
 
 > The Termux package documented below and the Android app in `android/` are two
 > independent ways to run the same server. You only need one of them.
@@ -73,7 +76,12 @@ account — the session is kept by the embedded browser.
   port, bind address, uptime and the last error, with one-tap start/stop.
 - **Logs** tab: live stdout/stderr from the server, follow-output toggle, copy
   all and clear; the same output is mirrored to `server.log` (rotated at 5 MB).
-- Resumes the server after an Android service restart if it was running.
+- **Anti-kill protection**: a hidden, inaudible silent-audio keep-alive keeps
+  the app in a media-playback foreground state, and an **auto-restart
+  watchdog** brings the server back after an unexpected kill (up to 5 times in
+  a rolling 10-minute window). The service also resumes the server after an
+  Android service restart if it was running. See
+  [Keeping the server alive in the background](#keeping-the-server-alive-in-the-background).
 
 **Use the full Tanoshi web UI**
 
@@ -127,10 +135,75 @@ updated from Tanoshi's web UI; new/updated plugins arrive with a new app
 release. Data survives app updates but is **deleted when you uninstall** the
 app (there is no export feature yet), so keep your own backups if needed.
 
+### Keeping the server alive in the background
+
+Android 12+ and many OEM ROMs kill background apps and their **child
+processes** aggressively — and the Tanoshi server runs as a child of the app
+process. While the server is running the app ships three layers of protection:
+
+- **Silent-audio keep-alive** (0.4.0): the app loops a generated, inaudible
+  one-second WAV at volume 0 through `MediaPlayer` and declares the foreground
+  service as `specialUse|mediaPlayback`, so Android/OEMs treat it as actively
+  playing media. There is **no MediaSession and no extra notification** — the
+  only notification stays the normal server one. It is inaudible, has no
+  setting/toggle, starts and stops with the server, and adds a small
+  continuous battery cost.
+- **Auto-restart watchdog** (0.4.0): if the server process is killed
+  unexpectedly while you still want it running, the app restarts it
+  automatically — up to **5 times in a rolling 10-minute window**, about 3
+  seconds apart, keeping the foreground service and audio alive. When the
+  budget is used up it shows the `ERROR` state and stays stopped.
+- **Battery-optimisation exemption**: on every device, enable **Settings →
+  Permissions → Ignore battery optimisations**.
+
+**Limitations — this is best-effort, not a guarantee.** The Android 12+
+*phantom-process killer* still limits app child processes: when more than
+**32 phantom processes** exist device-wide, or a child uses excessive CPU,
+`ActivityManager` kills them. Media playback does **not** exempt the app from
+those limits, and OEM task cleaners can still kill it.
+
+How to confirm the phantom-process killer is the cause: the app's **Logs** tab
+shows `Tanoshi server process <pid> exited (code ...)` (and then watchdog
+restart attempts or the `ERROR` state). With USB debugging,
+`adb logcat -s ActivityManager` shows `Killing PhantomProcessRecord`,
+`Trimming phantom processes` or an `excessive cpu` reason.
+
+Recommended workaround when it is confirmed (device-side, no root, **not
+needed on most phones**):
+
+- **Developer options:** enable Developer options and look for **"Disable
+  child process restrictions"** (Samsung/One UI and some other builds expose
+  this), then restart the server.
+- **ADB, Android 12:**
+
+  ```bash
+  adb shell settings put global settings_enable_monitor_phantom_procs false
+  adb shell settings get global settings_enable_monitor_phantom_procs  # -> false
+  ```
+
+- **ADB, Android 12L/13/14/15:**
+
+  ```bash
+  adb shell device_config put activity_manager max_phantom_processes 2147483647
+  adb shell device_config get activity_manager max_phantom_processes   # -> 2147483647
+  ```
+
+  A reboot may be needed before the change takes effect, and an OS update can
+  reset it (re-check and re-apply).
+
+Not every device/OEM build exposes or honours these settings, and a system
+update can reset them. They are **device-wide** settings, not app settings:
+they affect every app, can increase background memory use and battery drain,
+and remove a protection Android added deliberately. Only do it if you actually see the killer in
+`logcat`. The app cannot change them itself.
+
+Full details, including the API-level differences and failure modes:
+[`android/README.md`](android/README.md#keeping-the-server-alive-in-the-background).
+
 ### Updating the app
 
 - **In-app**: **Settings → Updates → Check for updates**. The app reads this
-  repository's GitHub releases (only tags like `android-v0.3.0`), compares the
+  repository's GitHub releases (only tags like `android-v0.4.0`), compares the
   version, downloads the release APK, verifies it when a digest is available and
   opens the system installer. You must allow "install unknown apps" once and
   confirm the install prompt.
@@ -159,7 +232,8 @@ app (there is no export feature yet), so keep your own backups if needed.
 
 | Symptom | What to do |
 | --- | --- |
-| Server stops when the screen sleeps | Open **Settings → Permissions → Ignore battery optimisations** and exempt Tanoshi from your OEM's battery saver. |
+| Server stops when the screen sleeps | Open **Settings → Permissions → Ignore battery optimisations** and exempt Tanoshi from your OEM's battery saver. If it still dies, it may be the Android 12+ phantom-process killer — see [Keeping the server alive in the background](#keeping-the-server-alive-in-the-background). |
+| Server keeps restarting itself, then shows ERROR | That is the 0.4.0 auto-restart watchdog: the server was killed up to 5 times in 10 minutes. Check the **Logs** tab and the phantom-process-killer guidance in [Keeping the server alive in the background](#keeping-the-server-alive-in-the-background). |
 | "Port already in use" / server won't start | Pick a different port in **Settings → Server** and restart. |
 | No QR code on the Server tab | Enable **Expose on LAN**, restart the server, and make sure the phone is on Wi-Fi/Ethernet (not just mobile data). |
 | QR scans but the other device can't connect | Guest Wi-Fi / client isolation or a VPN is blocking it; both devices must be on the same network. Use the shown `IP:port` in a browser to test. |

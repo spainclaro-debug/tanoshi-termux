@@ -108,16 +108,26 @@ exposure therefore exposes the login page and session over plain HTTP.
 in-app HTTPS stack, which is out of scope for now. This is intentional and
 documented in the security notes.
 
-### A10 — Foreground service type `specialUse`
+### A10 — Foreground service types `specialUse|mediaPlayback`
 
-The service uses `foregroundServiceType="specialUse"` with
-`FOREGROUND_SERVICE_SPECIAL_USE` and the
-`PROPERTY_SPECIAL_USE_FGS_SUBTYPE` property rather than `dataSync`, because
-Android 15+ caps `dataSync` at 6 h/day. A partial wake lock is held while the
-server runs.
+The service declares `foregroundServiceType="specialUse|mediaPlayback"`:
 
-*If wrong (Play Store policy):* Google may reject the `specialUse` justification
-for a sideloaded/self-hosted app; see Q4.
+- `specialUse` (with `FOREGROUND_SERVICE_SPECIAL_USE` and the
+  `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` property) rather than `dataSync`, because
+  Android 15+ caps `dataSync` at 6 h/day;
+- `mediaPlayback` (with `FOREGROUND_SERVICE_MEDIA_PLAYBACK`) together with the
+  hidden silent keep-alive (A24), so the app is in a media-playback FGS state
+  while the server runs.
+
+At runtime the passed type is `specialUse|mediaPlayback` on Android 14+,
+`mediaPlayback` on Android 10–13 (the `specialUse` type only exists on 14+),
+and 0 on older releases that predate FGS types. A partial wake lock is held
+while the server runs.
+
+*If wrong (Play Store policy):* Google may reject the `specialUse`/media
+justification for a sideloaded/self-hosted app; see Q4. The audio is inaudible
+and has no media session/notification, but a future Play review may still ask
+about a hidden audio path; the docs state exactly what it does.
 
 ### A11 — The APK is sideloaded, not distributed via Play Store
 
@@ -204,7 +214,7 @@ Termux package tags do not trigger the workflow at all (see Q6). For a tag,
 CI derives `versionName` from `android-vX.Y.Z`, sets
 `versionCode = X * 10000 + Y * 100 + Z`, and names the APK
 `tanoshi-mobile-server-release-<UTC date>.apk` via `-PapkDate`, passing all
-three to Gradle; local builds use the Gradle defaults (0.3.0 / 3, local date).
+three to Gradle; local builds use the Gradle defaults (0.4.0 / 4, local date).
 
 *If wrong:* if the repository owner prefers binaries rebuilt in CI, the
 workflow becomes much heavier (NDK, Rust, libarchive, wasm tooling) — see Q9.
@@ -257,9 +267,9 @@ a manual APK download from the release page.
 
 ### A20 — The app version is independent of the Tanoshi server version
 
-The app follows its own `android-vX.Y.Z` version scheme (0.3.0 / versionCode
-3 locally; versionCode `X*10000+Y*100+Z` for tagged releases, so
-`android-v0.3.0` is 300), independent of the bundled Tanoshi server (0.40.0 /
+The app follows its own `android-vX.Y.Z` version scheme (0.4.0 / versionCode
+4 locally; versionCode `X*10000+Y*100+Z` for tagged releases, so
+`android-v0.4.0` is 400), independent of the bundled Tanoshi server (0.40.0 /
 `VERSION`) and of the Termux package (`PACKAGE_TAG`). An app update may or may
 not change the bundled server; the two version lines are documented
 separately.
@@ -311,6 +321,72 @@ the port or `config.yml` was saved before the server had ever run. Existing
 
 *If wrong:* the first settings save before starting the server would fail
 again; the docs troubleshooting section describes the old symptom.
+
+### A24 — Hidden silent-audio keep-alive while the server runs
+
+While the server runs, `TanhoshiService` loops a generated one-second silent
+WAV through `MediaPlayer` and declares/starts the service with the
+`mediaPlayback` FGS type (plus `specialUse`), to keep the app in a
+media-playback foreground state so Android/OEMs are less likely to freeze or
+kill it and its native server child processes.
+
+Details: the WAV (`cacheDir/keepalive/silence.wav`, 44.1 kHz/16-bit mono PCM,
+~88 KB) is generated at runtime and reused — nothing is bundled in the APK;
+playback uses media audio attributes, looping, **volume forced to 0** and a
+partial wake mode; there is **no MediaSession, no media-style/extra
+notification, no audio-focus request and no extra UI** (the only notification
+is the normal server FGS one). It starts and stops with the server (including
+failure/terminal paths and service destroy) and there is **no user toggle** —
+stopping the server is the only way to stop it. It has a small continuous
+battery cost while the server runs. Failures are logged (app Logs tab SYSTEM
+line and Logcat) and ignored: the server keeps running without it.
+
+This is a **best-effort mitigation, not a guarantee**; it cannot defeat a
+force-stop, OEM "deep sleep" or the phantom-process killer (A26).
+
+*If wrong:* the app would be playing hidden audio without benefit, or a store
+policy would object; the docs explain exactly what it is, that it is
+inaudible, and that the server does not depend on it. If the no-toggle
+decision changes, a setting would need to be added (see Q15).
+
+### A25 — Auto-restart watchdog with a bounded rolling budget
+
+If the server process exits unexpectedly while `AppSettings.serverShouldRun`
+is true (not a user-requested stop/restart), the service keeps the foreground
+notification, wake lock and silent keep-alive alive and restarts the server a
+bounded number of times: **at most 5 automatic restarts in a rolling
+10-minute window, ~3 s apart**. The dashboard shows `STARTING` and the log
+records each attempt (`restarting it automatically (attempt N/5, in 3 s)`).
+A user-requested Stop/Restart cancels a pending restart. After the budget is
+exhausted the app records the attempts, sets `ERROR`, clears
+`serverShouldRun` (so a sticky service restart cannot resurrect the server)
+and releases the wake lock/audio before stopping the foreground service.
+
+*If wrong:* a crash loop could spin (bounded by the budget); the docs describe
+the 5-in-10-minutes cap and the terminal `ERROR` state.
+
+### A26 — The Android phantom-process killer is out of the app's control
+
+Android 12+ (API 31) limits app *child* processes device-wide: when more
+than **32 phantom processes** exist on the device, or a child process uses
+excessive CPU, `ActivityManager` kills those child processes. The Tanoshi
+server (and its extension workers) is such a child, so the server can be
+killed while the app survives. The silent keep-alive (A24) improves the app's
+importance/OEM treatment but **does not exempt it from these limits**; the
+watchdog (A25) shortens downtime but does not remove the cause.
+
+The reliable fixes are device-side and outside the app: Developer options
+**"Disable child process restrictions"** where the OEM exposes it, or ADB
+`settings put global settings_enable_monitor_phantom_procs false` (Android
+12) / `device_config put activity_manager max_phantom_processes 2147483647`
+(Android 12L+), with verification commands and reboot caveats. These are
+**device-wide** changes with battery/background-activity trade-offs and are
+not required on most phones; the app cannot make them itself.
+
+*If wrong:* users may expect the keep-alive to guarantee survival. The docs
+state it is best-effort, show how to confirm the killer from
+`adb logcat -s ActivityManager` (`Killing PhantomProcessRecord`, `excessive
+cpu`) and document the workaround with its trade-offs.
 
 ---
 
@@ -438,3 +514,12 @@ model for a sideloaded, self-hosted app (see A19).
 otherwise) so downloads are self-describing. The in-app updater accepts both
 the new prefix and legacy `app-debug.apk` assets, and the 0.1.0/0.2.0 release
 assets keep their historical name. See A22.
+
+### Q15 — Should the silent keep-alive be a user-facing setting?
+
+**Resolved (owner, 0.4.0):** no. The hidden silent-audio keep-alive is active
+exactly while the server runs, with no toggle; stopping the server stops it.
+This keeps the anti-kill behaviour predictable and avoids a setting whose
+effect users would struggle to observe (it is inaudible and has no separate
+notification). See A24. If a future release needs a battery-focused option,
+this is where to revisit it.

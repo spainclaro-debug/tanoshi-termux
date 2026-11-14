@@ -9,6 +9,11 @@
     <!-- Persistent foreground server process. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <!-- The server service also declares the mediaPlayback type and plays an
+         inaudible generated silence loop while the server runs: this keeps the
+         app in a media-playback foreground-service state so the OS/OEM is less
+         likely to kill it and its native server child processes. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK" />
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
@@ -40,14 +45,21 @@
         </activity>
 
         <!--
-          foregroundServiceType="specialUse": a self-hosted application server
-          has no better fitting FGS type. dataSync would be capped at 6 hours
-          per day on Android 15+, which would stop a long-running server.
+          foregroundServiceType="specialUse|mediaPlayback":
+          - specialUse fits a self-hosted application server; dataSync would be
+            capped at 6 hours per day on Android 15+, which would stop a
+            long-running server.
+          - mediaPlayback is used together with an inaudible, zero-volume
+            generated silence loop while the server runs. Keeping the app in a
+            media-playback foreground-service state makes Android/OEMs much less
+            likely to kill it (and its native server child processes) on devices
+            where the Android 12+ phantom-process killer or OEM child-process
+            restrictions are active. It is a best-effort mitigation only.
         -->
         <service
             android:name=".server.TanhoshiService"
             android:exported="false"
-            android:foregroundServiceType="specialUse"
+            android:foregroundServiceType="specialUse|mediaPlayback"
             android:stopWithTask="false">
             <property
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"

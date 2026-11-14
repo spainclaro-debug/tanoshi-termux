@@ -5,14 +5,16 @@ manga server and the same nine extensions as the Termux package in the
 repository root — **without Termux**. The app runs the server as a foreground
 service and shows its web UI in an embedded WebView (or your normal browser).
 
-Current release: **0.3.0** — see the
+Current release: **0.4.0** — see the
 [latest release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest)
-and [`CHANGELOG.md`](CHANGELOG.md). It adds a **Share on your network** QR code
-on the Server screen for other devices on the same Wi-Fi, fixes saving the port
-before the first server start, and names the sideload APK
-`tanoshi-mobile-server-release-<yyyy-MM-dd>.apk`. It includes the 0.2.0
-features (catalogue infinite scroll, in-app updates, Dark/Light/Nord/Catppuccin
-themes) and the shared signing key.
+and [`CHANGELOG.md`](CHANGELOG.md). It makes the background server harder to
+kill: a hidden, inaudible **silent-audio keep-alive** puts the app in a
+media-playback foreground state, and an **auto-restart watchdog** brings the
+server back after an unexpected kill (up to 5 times in 10 minutes). The APK
+name is unchanged (`tanoshi-mobile-server-release-<yyyy-MM-dd>.apk`). It
+includes the 0.3.0 features (LAN QR sharing, port-save fix, dated APK naming)
+and the 0.2.0 features (catalogue infinite scroll, in-app updates,
+Dark/Light/Nord/Catppuccin themes, shared signing key).
 
 This directory is the Android Gradle project (`dev.spainclaro.tanoshi`).
 The `arm64-v8a` native binaries are prebuilt and checked in, so building the
@@ -30,7 +32,7 @@ APK only needs JDK 17 and the Android SDK — no Rust or NDK. See
 ## Contents
 
 - [What you get](#what-you-get)
-- [What's new in 0.3.0](#whats-new-in-030)
+- [What's new in 0.4.0](#whats-new-in-040)
 - [Requirements](#requirements)
 - [Building the APK](#building-the-apk)
 - [Installing and updating](#installing-and-updating)
@@ -41,6 +43,7 @@ APK only needs JDK 17 and the Android SDK — no Rust or NDK. See
 - [Themes](#themes)
 - [In-app updates](#in-app-updates)
 - [Architecture](#architecture)
+- [Keeping the server alive in the background](#keeping-the-server-alive-in-the-background)
 - [Storage layout](#storage-layout)
 - [Settings and `config.yml`](#settings-and-configyml)
 - [Native binaries and rebuilding them](#native-binaries-and-rebuilding-them)
@@ -75,26 +78,32 @@ and the plugins. It is not split by ABI — only `arm64-v8a` is shipped.
 
 ---
 
-## What's new in 0.3.0
+## What's new in 0.4.0
 
-- **Share on your network (QR)** — while the server is running with
-  **Expose on LAN**, the Server screen shows a QR code for
-  `http://<host-ipv4>:<port>` plus the address with a copy button, so another
-  device on the same Wi-Fi can open the web UI by scanning it. The card warns
-  that this is plain HTTP on a trusted network only. See
-  [Sharing on your network (QR)](#sharing-on-your-network-qr).
-- **Fixed: saving the port before the first start** — `Settings → Port` and
-  the `config.yml` editor no longer fail with
-  `config.yml.tmp: open failed: ENOENT` when the server has never been
-  started; the app creates the data directory first.
-- **Changed APK filename** — every app build now produces
-  `tanoshi-mobile-server-release-<yyyy-MM-dd>.apk` instead of
-  `app-debug.apk` (UTC date in CI via `-PapkDate`, local date otherwise). CI
-  uploads and publishes that name, and the in-app updater prefers it while
-  still accepting legacy `app-debug.apk` assets.
-- **Version 0.3.0** — `versionCode` 3 in local builds; the `android-v0.3.0`
-  tag produces 300. Includes the 0.2.0 features (catalogue infinite scroll,
-  in-app updates, Dark/Light/Nord/Catppuccin themes, stable signing key).
+- **Hidden silent-audio keep-alive** — while the server runs, the app loops a
+  generated, inaudible one-second WAV through `MediaPlayer` at volume 0 and
+  declares the foreground service as `specialUse|mediaPlayback`. Android/OEMs
+  treat the app as actively playing media, so the app and its native server
+  child processes are less likely to be frozen or killed. There is **no
+  MediaSession and no extra notification** — the only notification is still
+  the normal server one. It is a best-effort mitigation, not a guarantee; see
+  [Keeping the server alive in the background](#keeping-the-server-alive-in-the-background).
+- **Auto-restart watchdog** — if the server process is killed while you want
+  it running, the app now restarts it automatically (up to **5 times in a
+  rolling 10-minute window**, about 3 s apart) instead of giving up at the
+  first unexpected exit. When the budget is exhausted it shows the usual
+  `ERROR` state.
+- **Phantom-process-killer workaround documented** — the reliable user-side
+  fixes (Developer options **Disable child process restrictions**, or the ADB
+  `settings`/`device_config` commands), how to confirm from `logcat` that the
+  killer is the cause, and the trade-offs. The silent audio improves the app's
+  standing but does **not** exempt it from the Android 12+ phantom-process
+  limits.
+- **Version 0.4.0** — `versionCode` 4 in local builds; the `android-v0.4.0`
+  tag produces 400. The APK filename scheme is unchanged. Includes the 0.3.0
+  features (LAN QR sharing, port-save fix, dated APK naming) and the 0.2.0
+  features (catalogue infinite scroll, in-app updates,
+  Dark/Light/Nord/Catppuccin themes, stable signing key).
 
 Full details: [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -156,12 +165,12 @@ dependencies; later builds are cached. Other useful tasks:
 ./gradlew clean                  # remove build outputs
 ```
 
-Local builds use the defaults in `app/build.gradle.kts` (**0.3.0**,
-`versionCode` 3) and today's date in the APK filename. CI derives both from
+Local builds use the defaults in `app/build.gradle.kts` (**0.4.0**,
+`versionCode` 4) and today's date in the APK filename. CI derives both from
 the release tag; you can do the same manually:
 
 ```bash
-./gradlew :app:assembleDebug -PappVersionName=0.3.0 -PappVersionCode=300 \
+./gradlew :app:assembleDebug -PappVersionName=0.4.0 -PappVersionCode=400 \
   -PapkDate=2026-11-14
 ```
 
@@ -222,18 +231,18 @@ Android setup/release actions are used: the SDK is provisioned with
 `sdkmanager` and releases are published with the preinstalled GitHub CLI.
 
 Releases are created only for tags of the form **`android-vX.Y.Z`**, for
-example `android-v0.3.0`. For a tag, CI derives everything from the tag and
+example `android-v0.4.0`. For a tag, CI derives everything from the tag and
 the build date:
 
 - `versionName` = `X.Y.Z` from the tag;
-- `versionCode` = `X * 10000 + Y * 100 + Z` (so `android-v0.3.0` → `300`);
+- `versionCode` = `X * 10000 + Y * 100 + Z` (so `android-v0.4.0` → `400`);
 - the APK filename date = the UTC build date (`-PapkDate=$(date -u +%F)`).
 
 The build command passes these with `-PappVersionName`, `-PappVersionCode` and
 `-PapkDate`, and the dated debug APK is attached to the generated GitHub
 release — exactly what the [in-app updater](#in-app-updates) consumes.
-Without a release tag, CI keeps the Gradle version defaults (0.3.0 /
-versionCode 3) and still uses the UTC build date; a local build that omits
+Without a release tag, CI keeps the Gradle version defaults (0.4.0 /
+versionCode 4) and still uses the UTC build date; a local build that omits
 `-PapkDate` uses the local date.
 
 The plain `v*` tags that belong to the Termux package releases
@@ -416,7 +425,7 @@ its own theme.
 button. Tapping it asks this repository's GitHub API for releases, considers
 only published (non-draft, non-prerelease) tags starting with `android-v`, and
 compares them numerically with the installed version (debug builds carry a
-`-debug` version suffix such as `0.3.0-debug`; the updater strips it before
+`-debug` version suffix such as `0.4.0-debug`; the updater strips it before
 comparing).
 
 When a newer release exists the section shows its version, tag, a release-notes
@@ -473,7 +482,8 @@ Requirements and limitations:
 ┌──────────────▼───────────────┐          │
 │ TanhoshiService              │          │
 │  foreground service          │          │
-│  (specialUse) + wake lock    │          │
+│ mediaPlayback|specialUse     │          │
+│  wake lock + silent audio    │          │
 │  ProcessBuilder              │          │
 └──────────────┬───────────────┘          │
                │ exec                     │
@@ -555,17 +565,146 @@ and libdl, and its SONAME is patched to plain `libarchive.so` so the server's
 
 ### Foreground service and battery
 
-- The service uses the **`specialUse`** foreground-service type with the
-  `FOREGROUND_SERVICE_SPECIAL_USE` permission and a
-  `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` description. The obvious alternative,
-  `dataSync`, is capped at **6 hours per day** on Android 15+, which would
-  stop a self-hosted server — hence `specialUse`.
+- The service is declared as **`specialUse|mediaPlayback`**:
+  - `specialUse` (with `FOREGROUND_SERVICE_SPECIAL_USE` and a
+    `PROPERTY_SPECIAL_USE_FGS_SUBTYPE` description) describes the
+    self-hosted-server use case. The obvious alternative, `dataSync`, is
+    capped at **6 hours per day** on Android 15+, which would stop a
+    self-hosted server.
+  - `mediaPlayback` (with `FOREGROUND_SERVICE_MEDIA_PLAYBACK`) is used
+    together with a hidden silent-audio loop so the app is treated as playing
+    media while the server runs — see
+    [Keeping the server alive in the background](#keeping-the-server-alive-in-the-background).
+  - At runtime the app passes `specialUse|mediaPlayback` on Android 14+
+    (API 34+), `mediaPlayback` on Android 10–13 (API 29–33; the
+    `specialUse` type only exists on 14+) and no type on older releases, which
+    predate foreground-service types.
 - A **partial wake lock** keeps the process alive while the screen is off; it
   is released whenever the server stops.
+- The silent keep-alive audio adds a small, continuous battery cost while the
+  server runs; it is inaudible and creates no extra notification.
 - `POST_NOTIFICATIONS` is requested on Android 13+ (API 33+); the app also
   offers an "ignore battery optimisations" shortcut, because many OEM builds
   kill long-running background apps aggressively.
+- If the server process is killed unexpectedly, a watchdog restarts it
+  automatically (bounded) — see the next section.
 - The server does not auto-start at boot. You start it from the app.
+
+---
+
+## Keeping the server alive in the background
+
+Android 12+ and many OEM ROMs are aggressive about killing background apps and
+their **child processes** — the bundled `libtanoshi.so` server runs as a child
+of the app process, so it is a target. The app ships two best-effort
+mitigations while the server is running; the most reliable fixes for the
+Android 12+ phantom-process killer are device-side settings (below). None of
+this is a guarantee: a force-stop, an OEM "deep sleep" policy or the
+phantom-process killer can still stop the server.
+
+### Hidden silent-audio keep-alive
+
+While the server runs, `TanhoshiService` loops a **generated one-second silent
+WAV** through `MediaPlayer` and keeps the foreground service in the
+`mediaPlayback` (plus `specialUse`) state:
+
+- The WAV is generated at runtime into the app cache
+  (`cacheDir/keepalive/silence.wav`): 44.1 kHz, 16-bit mono PCM silence,
+  about 88 KB, reused between starts. Nothing is bundled with the APK.
+- Playback uses media audio attributes, looping, **volume forced to 0**
+  (inaudible even at maximum media volume) and a partial wake mode. There is
+  **no MediaSession, no media-style notification, no audio-focus request and no
+  extra UI** — the only notification remains the normal "Tanoshi server"
+  foreground notification.
+- It starts when the server starts and stops when the server stops (or fails,
+  or the service is destroyed). **There is no setting or toggle**: stopping
+  the server is the only way to stop it.
+- Cost: a continuously looping silent audio stream (plus the wake lock) keeps
+  the CPU awake, so expect a small, continuous battery drain while the server
+  runs. It is silent and does not use the speaker.
+
+`Settings → Permissions → Ignore battery optimisations` remains recommended on
+top of this.
+
+### Auto-restart watchdog
+
+If the server process exits **unexpectedly** while you still want it running,
+the service keeps the foreground notification, wake lock and silent audio
+alive and restarts the server:
+
+- at most **5 automatic restarts in a rolling 10-minute window**, about **3
+  seconds** apart;
+- the dashboard shows `STARTING` during the restart, and the Logs tab records
+  lines such as `The Tanoshi server process was killed; restarting it
+  automatically (attempt 1/5, in 3 s)`;
+- a user-requested Stop (or Restart) cancels the pending restart;
+- when the budget is exhausted the app records `giving up automatic restarts
+  (5/5 attempts within 10 min)`, switches to `ERROR`, releases the wake lock
+  and silent audio and stops the foreground service — the same terminal state
+  as before 0.4.0.
+
+The budget is rolling: after ten minutes without a restart the app can restart
+the server automatically again.
+
+### If the Android phantom-process killer is killing the server
+
+Android 12 introduced the **phantom-process killer**. It limits app *child*
+processes device-wide: when more than **32 phantom processes** exist on the
+device, or when a child process uses excessive CPU, `ActivityManager` kills
+those child processes. The Tanoshi server (plus its extension worker
+processes) is exactly such a child; the app itself may survive, so the server
+can disappear while the UI still works. The silent-audio keep-alive improves
+the app's importance and how OEMs treat it, but it **does not exempt the app
+from the phantom-process limits**.
+
+How to tell it is the cause:
+
+- The Logs tab shows `Tanoshi server process <pid> exited (code ...)`, then
+  either the watchdog restart lines or (after 5 attempts) the `ERROR` state.
+- From a computer with USB debugging:
+
+  ```bash
+  adb logcat -s ActivityManager
+  ```
+
+  Look for `Killing PhantomProcessRecord`, `Trimming phantom processes` or an
+  `excessive cpu` reason. Other OEM task killers may log different messages.
+
+Recommended workarounds (device-side, no root; **not required for everyone**):
+
+- **Developer options (no ADB):** enable Developer options and look for
+  **"Disable child process restrictions"** (Samsung/One UI and some other
+  builds expose this toggle). Enable it, then restart the server.
+- **ADB, Android 12 (API 31):**
+
+  ```bash
+  adb shell settings put global settings_enable_monitor_phantom_procs false
+  adb shell settings get global settings_enable_monitor_phantom_procs  # -> false
+  ```
+
+- **ADB, Android 12L/13/14/15 (API 32+):**
+
+  ```bash
+  adb shell device_config put activity_manager max_phantom_processes 2147483647
+  adb shell device_config get activity_manager max_phantom_processes   # -> 2147483647
+  ```
+
+  On those builds the `settings` flag may not exist or may not be honoured;
+  the `device_config` value is the one the killer uses. A reboot may be needed
+  before the change takes effect, and an OS update can reset it (re-check and
+  re-apply afterwards).
+
+Not every device or OEM build exposes these settings or honours them; the
+commands can be ignored, restricted or reset by a system update. Trade-offs:
+these are **device-wide** settings, not app settings — disabling the
+phantom-process monitor affects every app, can increase background
+activity/memory use and battery drain, and removes a protection Android added
+deliberately. Only do it if you actually see the killer in `logcat`; on most
+phones the silent audio, watchdog and battery-optimisation exemption are
+enough. The app cannot change these settings itself.
+
+If the server still dies, check the OEM's battery/"deep sleep"/autostart
+settings and keep the app exempted from battery optimisation.
 
 ---
 
@@ -798,10 +937,22 @@ version).
 
 **The server is killed in the background.** Exempt the app from battery
 optimisation (Settings → "Ignore battery optimisations"), then check the OEM's
-"autostart"/"background app" settings. On Android 12+ the OS's *phantom
-process killer* can still kill app child processes under memory pressure; a
-foreground service makes this much less likely. Keeping the notification
-visible helps.
+"autostart"/"background app" settings. From 0.4.0 the app also loops an
+inaudible silent-audio keep-alive and auto-restarts a killed server (up to 5
+times in 10 minutes) — see
+[Keeping the server alive in the background](#keeping-the-server-alive-in-the-background).
+If it still happens, the Android 12+ *phantom-process killer* is the likely
+cause: confirm with `adb logcat -s ActivityManager` (`Killing
+PhantomProcessRecord`) and use the Developer-options/ADB workaround described
+in that section. Keeping the notification visible helps.
+
+**The server restarts itself (or shows ERROR after doing so).** This is the
+0.4.0 auto-restart watchdog: an unexpected server-process exit triggers up to
+5 automatic restarts in a rolling 10-minute window, roughly 3 s apart. The
+Logs tab shows each attempt (`restarting it automatically (attempt N/5...)`).
+After five attempts the server stays `ERROR` and stays stopped; check the log
+for the exit code, then start it again or follow the phantom-killer guidance
+above.
 
 **Notification not shown on Android 13+.** Grant the notification permission
 (Settings → Notifications). The server still runs when it is denied, but the
@@ -847,7 +998,8 @@ and `allowBackup` is off. Copy the `tanoshi/` folder out first (see
 | libarchive | 3.8.11 (custom minimal build; `compress-tools` 0.16.1 requires ≥ 3.2.0) |
 | Embedded web UI | Package-3 wasm dist (`native/web-dist/`), built with the infinite-scroll patch |
 | QR sharing | ZXing core 3.5.3 (pure Java) |
-| App version | 0.3.0 (`versionName`); `versionCode` 3 in local builds, 300 for the `android-v0.3.0` tag |
+| Foreground service types | `specialUse` + `mediaPlayback` (silent keep-alive; from 0.4.0) |
+| App version | 0.4.0 (`versionName`); `versionCode` 4 in local builds, 400 for the `android-v0.4.0` tag |
 | APK filename | `tanoshi-mobile-server-release-<yyyy-MM-dd>.apk` (0.3.0+; 0.1.0/0.2.0 used `app-debug.apk`) |
 | Signing key | `android/keystore/tanoshi-signing.jks` (alias `tanoshi`), shared by all releases |
 | Android NDK (native rebuilds only) | r26+ |

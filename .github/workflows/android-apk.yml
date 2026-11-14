@@ -77,7 +77,7 @@ jobs:
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "apk_date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
-          echo "Building version '${NAME:-0.3.0 (default)}' code '${CODE:-3 (default)}'"
+          echo "Building version '${NAME:-0.4.0 (default)}' code '${CODE:-4 (default)}'"
 
       - name: Build debug APK
         working-directory: android
@@ -87,8 +87,8 @@ jobs:
           APK_DATE: ${{ steps.version.outputs.apk_date }}
         run: |
           chmod +x ./gradlew
-          NAME="${APP_VERSION_NAME:-0.3.0}"
-          CODE="${APP_VERSION_CODE:-3}"
+          NAME="${APP_VERSION_NAME:-0.4.0}"
+          CODE="${APP_VERSION_CODE:-4}"
           ./gradlew :app:assembleDebug --no-daemon --stacktrace \
             -PappVersionName="$NAME" -PappVersionCode="$CODE" -PapkDate="$APK_DATE"
 
@@ -109,7 +109,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
-          NOTES="Standalone arm64-v8a Android app that bundles and runs the Tanoshi server (no Termux). Highlights of 0.3.0: share the server with other devices via a QR code on the Server screen (Expose on LAN), fixed saving the port before the first server start, plus the 0.2.0 features (catalogue infinite scroll, in-app updates, Dark/Light/Nord/Catppuccin themes, stable signing). Install: download tanoshi-mobile-server-release-<date>.apk and sideload it, then open the app, start the server and register the first admin account. Upgrading from 0.1.0 requires a one-time uninstall (0.1.0 was signed with a different key). See android/CHANGELOG.md and android/README.md."
+          NOTES="Standalone arm64-v8a Android app that bundles and runs the Tanoshi server (no Termux). Highlights of 0.4.0: a hidden silent-audio keep-alive (media-playback foreground service, volume 0, no extra notification) and an auto-restart watchdog help the server survive Android 12+ phantom-process killing and OEM child-process restrictions; plus 0.3.0 features (LAN QR sharing, port-save fix) and 0.2.0 features (catalogue infinite scroll, in-app updates, Dark/Light/Nord/Catppuccin themes, stable signing). Install: download tanoshi-mobile-server-release-<date>.apk and sideload it, then open the app, start the server and register the first admin account. Upgrading from 0.1.0 requires a one-time uninstall (0.1.0 was signed with a different key). See android/CHANGELOG.md and android/README.md."
           gh release create "$TAG" \
             android/app/build/outputs/apk/debug/tanoshi-mobile-server-release-*.apk \
             --repo "$GITHUB_REPOSITORY" \

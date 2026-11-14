@@ -353,8 +353,9 @@ output of this pipeline, built on an x86_64 Linux host with:
 
 `sync_prebuilt.sh` does not rebuild anything — it only copies what the other
 scripts produced, so `git diff` after a rebuild shows exactly which binaries
-changed. The app-side 0.3.0 release does not change `libtanoshi.so` or the web
-UI: it reuses these binaries and only updates the Android app/APK packaging.
+changed. Recent app-only releases (0.3.0, 0.4.0) do not change
+`libtanoshi.so` or the web UI: they reuse these binaries and only update the
+Android app/APK packaging and behaviour.
 
 ### Reproducibility caveats
 
