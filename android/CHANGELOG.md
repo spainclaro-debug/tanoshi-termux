@@ -3,16 +3,52 @@
 All notable changes to the standalone Android app in `android/`. The app is
 versioned independently of the upstream Tanoshi server it bundles (currently
 Tanoshi **0.40.0**) and is released as GitHub releases tagged **`android-vX.Y.Z`**
-(for example `android-v0.2.0`). The Termux package in the repository root has
+(for example `android-v0.3.0`). The Termux package in the repository root has
 its own `PACKAGE_TAG` and `v*` release tags.
 
 Versioning: local/Gradle builds default to the version in
 `android/app/build.gradle.kts`. CI derives `versionName` from the
 `android-vX.Y.Z` tag and sets
 `versionCode = major * 10000 + minor * 100 + patch`, passing both to Gradle
-with `-PappVersionName` / `-PappVersionCode`.
+with `-PappVersionName` / `-PappVersionCode`. Since 0.3.0 the sideload APK is
+named `tanoshi-mobile-server-release-<yyyy-MM-dd>.apk`, where the date is the
+UTC build date in CI (via `-PapkDate`) and the local date otherwise.
 
 ---
+
+## 0.3.0
+
+### Added
+
+- **"Share on your network" QR card** on the Server screen: while the server
+  is running and bound to `0.0.0.0` (Expose on LAN), it shows a QR code
+  encoding `http://<host-ipv4>:<port>` for another device on the same
+  Wi-Fi/Ethernet network, plus the host `ip:port`/URL with a copy button. The
+  address prefers a Wi-Fi/Ethernet IPv4 address (excluding loopback and
+  link-local) and is refreshed when the screen resumes. QR generation uses
+  ZXing core 3.5.3 (pure Java) off the main thread. When one of the
+  requirements is missing, the card explains what to enable instead. Includes
+  plain-HTTP/same-network warnings.
+
+### Fixed
+
+- **Saving the port or `config.yml` before the first server start** failed with
+  `config.yml.tmp: open failed: ENOENT (No such file or directory)` because
+  the data directory did not exist. `ConfigManager.setPort` now ensures the
+  app directories exist, and the atomic write creates the target's parent
+  directory defensively.
+
+### Changed
+
+- **Sideload APK renamed** from `app-debug.apk` to
+  `tanoshi-mobile-server-release-<yyyy-MM-dd>.apk`. CI passes the UTC build
+  date via `-PapkDate`; local builds use the local date. CI uploads the dated
+  file inside the `tanoshi-android-debug-apk` artifact and publishes it as the
+  GitHub release asset. The in-app updater prefers release assets whose name
+  starts with `tanoshi-mobile-server` and still accepts legacy
+  `app-debug.apk` assets (0.1.0/0.2.0 releases).
+- **Version 0.3.0:** `versionCode` 3 in the Gradle default; the
+  `android-v0.3.0` tag produces `versionCode` 300.
 
 ## 0.2.0
 
@@ -46,6 +82,7 @@ with `-PappVersionName` / `-PappVersionCode`.
 - **Stable sideload signing.** All releases (CI and local) are now signed with
   the committed key `android/keystore/tanoshi-signing.jks` (alias `tanoshi`)
   so the in-app updater can install a newer release over the existing app.
+  The 0.2.0 release asset was still named `app-debug.apk`.
   The `debug` and `release` build types both use this key when the file is
   present, and fall back to the local Android debug keystore otherwise. See
   `android/keystore/README.md`.
@@ -77,5 +114,5 @@ First standalone Android release (no Termux):
   battery-optimisation settings.
 - First-run administrator creation through the server's GraphQL `register`
   mutation (no baked-in credentials).
-- Debug-signed, arm64-v8a-only APK built by GitHub Actions on pushes, pull
-  requests and `android-v*` tags.
+- Debug-signed, arm64-v8a-only APK (`app-debug.apk`) built by GitHub Actions
+  on pushes, pull requests and `android-v*` tags.

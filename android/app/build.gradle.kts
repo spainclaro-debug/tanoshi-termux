@@ -1,13 +1,23 @@
+import com.android.build.api.variant.impl.VariantOutputImpl
+import java.time.LocalDate
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
-// Version can be overridden from CI (`-PappVersionName=0.2.0 -PappVersionCode=200`)
+// Version can be overridden from CI (`-PappVersionName=0.3.0 -PappVersionCode=300`)
 // so tagged Android releases always carry an increasing version automatically.
-val appVersionName: String = providers.gradleProperty("appVersionName").orElse("0.2.0").get()
-val appVersionCode: Int = providers.gradleProperty("appVersionCode").orElse("2").get().toInt()
+val appVersionName: String = providers.gradleProperty("appVersionName").orElse("0.3.0").get()
+val appVersionCode: Int = providers.gradleProperty("appVersionCode").orElse("3").get().toInt()
+
+// Sideload APK file name, e.g. tanoshi-mobile-server-release-2026-11-14.apk.
+// CI passes -PapkDate=$(date -u +%F); local builds use the local date so the
+// same naming scheme applies without extra flags.
+val apkDate: String = providers.gradleProperty("apkDate")
+    .orElse(LocalDate.now().toString())
+    .get()
 
 // Shared sideload signing key. Committing a keystore is normally a bad idea,
 // but this app is only distributed as a sideloadable APK and every release
@@ -88,6 +98,7 @@ android {
         buildConfig = true
     }
 
+
     // The bundled Tanoshi binary is executed from nativeLibraryDir, so the
     // installer must extract native libraries (Android 10+ forbids exec from
     // the app data directory, but nativeLibraryDir is executable).
@@ -107,6 +118,21 @@ android {
     }
 }
 
+// Name the sideloadable APK after the build date instead of app-debug.apk,
+// e.g. tanoshi-mobile-server-release-2026-11-14.apk. This is what CI uploads
+// and publishes as the release asset.
+androidComponents {
+    onVariants { variant ->
+        variant.outputs.forEach { output ->
+            // AGP's internal output object is the only pre-packaging hook for
+            // renaming the APK; pinned AGP 8.7.3 keeps this API stable.
+            (output as VariantOutputImpl).outputFileName.set(
+                "tanoshi-mobile-server-release-$apkDate.apk",
+            )
+        }
+    }
+}
+
 dependencies {
     implementation(platform("androidx.compose:compose-bom:2024.12.01"))
     implementation("androidx.compose.ui:ui")
@@ -120,6 +146,8 @@ dependencies {
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
     implementation("androidx.webkit:webkit:1.12.1")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+    // QR code generation for the LAN sharing card (pure Java, no native code).
+    implementation("com.google.zxing:core:3.5.3")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

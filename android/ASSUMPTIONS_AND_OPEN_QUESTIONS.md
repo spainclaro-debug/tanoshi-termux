@@ -201,10 +201,10 @@ JDK 17 + Android SDK and runs `./gradlew :app:assembleDebug`; it does not
 install the NDK/Rust. CI builds on pushes and pull requests, and creates a
 GitHub release (with the debug APK) only for **`android-v*`** tags; plain `v*`
 Termux package tags do not trigger the workflow at all (see Q6). For a tag,
-CI derives `versionName` from `android-vX.Y.Z` and
-`versionCode = X * 10000 + Y * 100 + Z`, passing both to Gradle with
-`-PappVersionName` / `-PappVersionCode`; local builds use the Gradle defaults
-(0.2.0 / 2).
+CI derives `versionName` from `android-vX.Y.Z`, sets
+`versionCode = X * 10000 + Y * 100 + Z`, and names the APK
+`tanoshi-mobile-server-release-<UTC date>.apk` via `-PapkDate`, passing all
+three to Gradle; local builds use the Gradle defaults (0.3.0 / 3, local date).
 
 *If wrong:* if the repository owner prefers binaries rebuilt in CI, the
 workflow becomes much heavier (NDK, Rust, libarchive, wasm tooling) — see Q9.
@@ -221,7 +221,8 @@ builds both need one stable signature. The key is not a secret — it protects
 nothing on a sideload-only app — it only has to stay stable.
 
 0.1.0 was built with an ephemeral CI debug key, so **0.1.0 users must
-uninstall once** before installing 0.2.0 (losing app data). Replacing the key
+uninstall once** before installing 0.2.0 or later (losing app data). Replacing
+the key
 for a private build has the same consequence. Details and `keytool` commands:
 [`keystore/README.md`](keystore/README.md).
 
@@ -233,8 +234,10 @@ would have to uninstall (and lose their library) on every key change.
 `Settings → Updates` (`UpdateManager`) queries
 `https://api.github.com/repos/spainclaro-debug/tanoshi-termux/releases?per_page=50`
 without authentication and considers only non-draft, non-prerelease tags
-starting with `android-v` that have an `.apk` asset (preferring
-`app-debug.apk`). It compares the tag version numerically with the installed
+starting with `android-v` that have an `.apk` asset. It prefers asset names
+starting with `tanoshi-mobile-server` (the 0.3.0+ naming), accepts any other
+`.apk` as a fallback, and still understands the legacy `app-debug.apk` name
+used by 0.1.0/0.2.0. It compares the tag version numerically with the installed
 `versionName` (the debug `-debug` suffix is stripped), downloads the APK into
 `cacheDir/updates/` (temporary `.part` file, size checked, SHA-256 checked
 when the release asset exposes a digest), and installs it via
@@ -254,14 +257,60 @@ a manual APK download from the release page.
 
 ### A20 — The app version is independent of the Tanoshi server version
 
-The app follows its own `android-vX.Y.Z` version scheme (0.2.0 / versionCode
-2 locally; versionCode `X*10000+Y*100+Z` for tagged releases), independent of
-the bundled Tanoshi server (0.40.0 / `VERSION`) and of the Termux package
-(`PACKAGE_TAG`). An app update may or may not change the bundled server; the
-two version lines are documented separately.
+The app follows its own `android-vX.Y.Z` version scheme (0.3.0 / versionCode
+3 locally; versionCode `X*10000+Y*100+Z` for tagged releases, so
+`android-v0.3.0` is 300), independent of the bundled Tanoshi server (0.40.0 /
+`VERSION`) and of the Termux package (`PACKAGE_TAG`). An app update may or may
+not change the bundled server; the two version lines are documented
+separately.
 
 *If wrong:* users could mistake app releases for server/extension releases;
 the docs state both versions explicitly in the Versions table and changelog.
+
+### A21 — LAN sharing uses a discovered IPv4 address over plain HTTP
+
+The Server screen's **Share on your network** card shows a QR code encoding
+`http://<host-ipv4>:<port>` only when the server is `RUNNING`, bound to
+`0.0.0.0`, and a usable LAN address was found. The address is discovered by
+taking the first IPv4 address of the active network when `ConnectivityManager`
+reports it as Wi-Fi or Ethernet, and otherwise falling back to enumerating
+non-loopback interfaces; loopback and link-local (`169.254.x.x`) IPv4
+addresses are excluded, and the address is re-resolved when the screen
+resumes. The QR is generated with ZXing core 3.5.3 (pure Java, no native
+code) off the main thread. The card also
+shows `ip:port` with a copy button, warns that it only works on the same
+network and that the connection is plain HTTP, and merely describes what to
+enable when requirements are missing — it never changes the bind address.
+
+*If wrong:* the QR may encode an unreachable address (VPN, VLAN, hotspot
+isolation) or the wrong interface; the docs state the same-network/plain-HTTP
+limits and the app falls back to the existing LAN guidance text.
+
+### A22 — Release APKs use a dated filename
+
+Since 0.3.0, app builds produce
+`tanoshi-mobile-server-release-<yyyy-MM-dd>.apk` via the Gradle
+`androidComponents.onVariants` output rename. CI sets `-PapkDate` from the UTC
+date; local builds default to the local date. The workflow's artifact name
+stays `tanoshi-android-debug-apk`, but the file inside it and the GitHub
+release asset use the dated name. The in-app updater prefers asset names
+starting with `tanoshi-mobile-server` and still accepts legacy
+`app-debug.apk` assets, so 0.1.0/0.2.0 releases and manual downloads remain
+valid. Historical releases keep their original `app-debug.apk` name.
+
+*If wrong:* users/automation looking for `app-debug.apk` in new releases will
+not find it; the docs and updater cover both names.
+
+### A23 — Settings can be saved before the first server start
+
+Since 0.3.0, `ConfigManager.setPort` calls `AppPaths.ensureDirectories` and
+`writeAtomically` creates the target's parent directory defensively. This
+fixes the 0.2.0-and-earlier `config.yml.tmp: open failed: ENOENT` failure when
+the port or `config.yml` was saved before the server had ever run. Existing
+`config.yml`/data are untouched by the fix.
+
+*If wrong:* the first settings save before starting the server would fail
+again; the docs troubleshooting section describes the old symptom.
 
 ---
 
@@ -335,6 +384,12 @@ options the owner may want: a custom bind address, per-interface selection,
 or a separate "allow LAN login" warning/confirmation step. Confirm the
 desired UX and whether the plain-HTTP warning is enough.
 
+**Update (0.3.0):** the Server screen's
+[QR share card](README.md) now surfaces LAN sharing only while the server
+is actually reachable on `0.0.0.0`, but the underlying setting is still the
+single Expose on LAN toggle. Confirm that this is the desired UX (and whether
+a per-interface choice is still wanted).
+
 ### Q9 — Should CI rebuild the native binaries?
 
 The workflow builds only the app because the binaries are committed (A17).
@@ -375,3 +430,11 @@ Termux default login should change as well.
 never installs without Android's confirmation dialog. There is no background
 update service and no delta/incremental patching — the simplest and safest
 model for a sideloaded, self-hosted app (see A19).
+
+### Q14 — Should release APKs keep a generic `app-debug.apk` name?
+
+**Resolved (owner, 0.3.0):** no. New builds are named
+`tanoshi-mobile-server-release-<yyyy-MM-dd>.apk` (UTC date in CI, local date
+otherwise) so downloads are self-describing. The in-app updater accepts both
+the new prefix and legacy `app-debug.apk` assets, and the 0.1.0/0.2.0 release
+assets keep their historical name. See A22.

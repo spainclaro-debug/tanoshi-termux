@@ -448,7 +448,8 @@ class UpdateManager(context: Context) {
             val name = asset.stringOrNull("name") ?: continue
             if (!name.endsWith(APK_SUFFIX, ignoreCase = true)) continue
             if (asset.stringOrNull("browser_download_url").isNullOrBlank()) continue
-            if (name.equals(PREFERRED_ASSET_NAME, ignoreCase = true)) return asset
+            if (name.startsWith(PREFERRED_ASSET_PREFIX, ignoreCase = true)) return asset
+            if (name.equals(LEGACY_ASSET_NAME, ignoreCase = true) && fallback == null) fallback = asset
             if (fallback == null) fallback = asset
         }
         return fallback
@@ -697,7 +698,8 @@ class UpdateManager(context: Context) {
             "https://api.github.com/repos/spainclaro-debug/tanoshi-termux/releases?per_page=50"
         private const val TAG_PREFIX = "android-v"
         private const val APK_SUFFIX = ".apk"
-        private const val PREFERRED_ASSET_NAME = "app-debug.apk"
+        private const val PREFERRED_ASSET_PREFIX = "tanoshi-mobile-server"
+    private const val LEGACY_ASSET_NAME = "app-debug.apk"
         private const val SHA256_PREFIX = "sha256:"
         private const val USER_AGENT = "Tanoshi-Android"
         private const val GITHUB_API_VERSION = "2022-11-28"

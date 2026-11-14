@@ -5,10 +5,14 @@ manga server and the same nine extensions as the Termux package in the
 repository root — **without Termux**. The app runs the server as a foreground
 service and shows its web UI in an embedded WebView (or your normal browser).
 
-Current release: **0.2.0** — see the
+Current release: **0.3.0** — see the
 [latest release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest)
-and [`CHANGELOG.md`](CHANGELOG.md). It adds catalogue infinite scroll in the
-embedded web UI, in-app updates and selectable themes on top of 0.1.0.
+and [`CHANGELOG.md`](CHANGELOG.md). It adds a **Share on your network** QR code
+on the Server screen for other devices on the same Wi-Fi, fixes saving the port
+before the first server start, and names the sideload APK
+`tanoshi-mobile-server-release-<yyyy-MM-dd>.apk`. It includes the 0.2.0
+features (catalogue infinite scroll, in-app updates, Dark/Light/Nord/Catppuccin
+themes) and the shared signing key.
 
 This directory is the Android Gradle project (`dev.spainclaro.tanoshi`).
 The `arm64-v8a` native binaries are prebuilt and checked in, so building the
@@ -18,7 +22,7 @@ APK only needs JDK 17 and the Android SDK — no Rust or NDK. See
 > **Sideload only, arm64-v8a only, HTTP only.** There is no Play Store build,
 > no TLS and no default account. Read the [Security notes](#security-notes)
 > before exposing it on a LAN. **Users of 0.1.0 must uninstall it once before
-> installing 0.2.0** (different signing key) — see
+> installing 0.2.0 or later** (different signing key) — see
 > [Installing and updating](#installing-and-updating).
 
 ---
@@ -26,12 +30,13 @@ APK only needs JDK 17 and the Android SDK — no Rust or NDK. See
 ## Contents
 
 - [What you get](#what-you-get)
-- [What's new in 0.2.0](#whats-new-in-020)
+- [What's new in 0.3.0](#whats-new-in-030)
 - [Requirements](#requirements)
 - [Building the APK](#building-the-apk)
 - [Installing and updating](#installing-and-updating)
 - [First run](#first-run)
 - [Using the app](#using-the-app)
+- [Sharing on your network (QR)](#sharing-on-your-network-qr)
 - [The embedded web UI](#the-embedded-web-ui)
 - [Themes](#themes)
 - [In-app updates](#in-app-updates)
@@ -59,8 +64,9 @@ APK only needs JDK 17 and the Android SDK — no Rust or NDK. See
   **infinite-scroll catalogue**: the next page loads automatically as you
   scroll, with **Load More** as the manual fallback.
 - A small Material 3 wrapper: start/stop the server, watch its logs, open the
-  web UI, edit the port, toggle LAN exposure, inspect/edit `config.yml`, pick
-  an app theme and update the app from inside it.
+  web UI, edit the port, toggle LAN exposure and share a QR code for other
+  devices on the same network, inspect/edit `config.yml`, pick an app theme
+  and update the app from inside it.
 - The entire server data directory lives in the app's private storage; the
   phone needs no root, no Termux and no shell.
 
@@ -69,25 +75,26 @@ and the plugins. It is not split by ABI — only `arm64-v8a` is shipped.
 
 ---
 
-## What's new in 0.2.0
+## What's new in 0.3.0
 
-- **In-app updates** — `Settings → Updates` checks this repository's GitHub
-  releases and installs a newer `android-v*` release through Android's package
-  installer. See [In-app updates](#in-app-updates).
-- **Selectable themes** — `Settings → Appearance` offers Dark (default),
-  Light, Nord and Catppuccin Material 3 themes for the app UI. See
-  [Themes](#themes).
-- **Catalogue infinite scroll** in the embedded Tanoshi web UI: the next page
-  loads automatically as you scroll, and **Load More** becomes *No more
-  results* at the end. This is a server-side (web UI) change, not just an app
-  change. See [The embedded web UI](#the-embedded-web-ui).
-- **Stable signing key** — every release is now signed with
-  `android/keystore/tanoshi-signing.jks`, which is what makes in-app updates
-  possible. **If you installed 0.1.0, uninstall it once before installing
-  0.2.0** (it was signed with a throwaway CI key, and uninstalling deletes
-  app data) — see [Installing and updating](#installing-and-updating).
-- **Tag-driven versioning** — `android-vX.Y.Z` tags set the app version and
-  version code automatically (see [CI](#ci)).
+- **Share on your network (QR)** — while the server is running with
+  **Expose on LAN**, the Server screen shows a QR code for
+  `http://<host-ipv4>:<port>` plus the address with a copy button, so another
+  device on the same Wi-Fi can open the web UI by scanning it. The card warns
+  that this is plain HTTP on a trusted network only. See
+  [Sharing on your network (QR)](#sharing-on-your-network-qr).
+- **Fixed: saving the port before the first start** — `Settings → Port` and
+  the `config.yml` editor no longer fail with
+  `config.yml.tmp: open failed: ENOENT` when the server has never been
+  started; the app creates the data directory first.
+- **Changed APK filename** — every app build now produces
+  `tanoshi-mobile-server-release-<yyyy-MM-dd>.apk` instead of
+  `app-debug.apk` (UTC date in CI via `-PapkDate`, local date otherwise). CI
+  uploads and publishes that name, and the in-app updater prefers it while
+  still accepting legacy `app-debug.apk` assets.
+- **Version 0.3.0** — `versionCode` 3 in local builds; the `android-v0.3.0`
+  tag produces 300. Includes the 0.2.0 features (catalogue infinite scroll,
+  in-app updates, Dark/Light/Nord/Catppuccin themes, stable signing key).
 
 Full details: [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -129,7 +136,9 @@ any of that for a normal APK build.
 3. **Build → Build Bundle(s)/APK(s) → Build APK(s)**.
 
 The debug APK is written to
-`android/app/build/outputs/apk/debug/app-debug.apk`.
+`android/app/build/outputs/apk/debug/tanoshi-mobile-server-release-<yyyy-MM-dd>.apk`,
+where `<yyyy-MM-dd>` is the local build date (CI passes the UTC date via
+`-PapkDate`).
 
 ### Command line
 
@@ -147,13 +156,17 @@ dependencies; later builds are cached. Other useful tasks:
 ./gradlew clean                  # remove build outputs
 ```
 
-Local builds use the defaults in `app/build.gradle.kts` (**0.2.0**,
-`versionCode` 2). CI derives both from the release tag; you can do the same
-manually:
+Local builds use the defaults in `app/build.gradle.kts` (**0.3.0**,
+`versionCode` 3) and today's date in the APK filename. CI derives both from
+the release tag; you can do the same manually:
 
 ```bash
-./gradlew :app:assembleDebug -PappVersionName=0.2.0 -PappVersionCode=200
+./gradlew :app:assembleDebug -PappVersionName=0.3.0 -PappVersionCode=300 \
+  -PapkDate=2026-11-14
 ```
+
+`-PapkDate` is optional locally (the local date is used) and is what CI sets
+from the UTC build date.
 
 ### Signing
 
@@ -174,7 +187,9 @@ keystore (`~/.android/debug.keystore`) when it does not. CI builds the `debug`
 variant, whose application id is `dev.spainclaro.tanoshi.debug`; the release
 variant uses `dev.spainclaro.tanoshi`. In-app updates replace the installed
 app, so they only work within the same package id — i.e. the published
-`app-debug.apk` replaces a previously installed `app-debug.apk`.
+`tanoshi-mobile-server-release-<date>.apk` replaces a previously installed
+build of the `.debug` package. Installs made from the older
+`app-debug.apk` name are replaced the same way.
 
 Why commit a keystore? Android refuses to install an update over an app signed
 with a different key, and the [in-app updater](#in-app-updates) hands the next
@@ -183,8 +198,8 @@ build incompatible. The full rationale, key details and replacement
 instructions are in [`keystore/README.md`](keystore/README.md).
 
 **Upgrading from 0.1.0:** 0.1.0 was built with an ephemeral CI debug key, so
-0.2.0 cannot be installed over it (Android reports a signature mismatch).
-Uninstall 0.1.0 first — this deletes the app's private data. See
+0.2.0 or later cannot be installed over it (Android reports a signature
+mismatch). Uninstall 0.1.0 first — this deletes the app's private data. See
 [Installing and updating](#installing-and-updating).
 
 **Using your own key:** for a private build, replace
@@ -201,20 +216,25 @@ builds `:app:assembleDebug` on every push, on pull requests that touch
 `android/**` or the workflow, and on manual dispatch. It installs JDK 17
 (Temurin) and the Android SDK packages `platforms;android-35` and
 `build-tools;35.0.0` with `sdkmanager`, runs Gradle with the wrapper, and
-uploads the APK as the **`tanoshi-android-debug-apk`** artifact. No third-party
+uploads the APK as the **`tanoshi-android-debug-apk`** artifact; the file
+inside it is `tanoshi-mobile-server-release-<UTC date>.apk`. No third-party
 Android setup/release actions are used: the SDK is provisioned with
 `sdkmanager` and releases are published with the preinstalled GitHub CLI.
 
 Releases are created only for tags of the form **`android-vX.Y.Z`**, for
-example `android-v0.2.0`. For a tag, CI derives the version:
+example `android-v0.3.0`. For a tag, CI derives everything from the tag and
+the build date:
 
 - `versionName` = `X.Y.Z` from the tag;
-- `versionCode` = `X * 10000 + Y * 100 + Z` (so `android-v0.2.0` → `200`);
+- `versionCode` = `X * 10000 + Y * 100 + Z` (so `android-v0.3.0` → `300`);
+- the APK filename date = the UTC build date (`-PapkDate=$(date -u +%F)`).
 
-and passes both to Gradle with `-PappVersionName` / `-PappVersionCode`. The
-debug APK is attached to the generated GitHub release, which is exactly what
-the [in-app updater](#in-app-updates) consumes. Without a tag the Gradle
-defaults apply (0.2.0 / versionCode 2).
+The build command passes these with `-PappVersionName`, `-PappVersionCode` and
+`-PapkDate`, and the dated debug APK is attached to the generated GitHub
+release — exactly what the [in-app updater](#in-app-updates) consumes.
+Without a release tag, CI keeps the Gradle version defaults (0.3.0 /
+versionCode 3) and still uses the UTC build date; a local build that omits
+`-PapkDate` uses the local date.
 
 The plain `v*` tags that belong to the Termux package releases
 (`v0.40.0-termux.3`, …) do not trigger this workflow, so the two release
@@ -224,16 +244,21 @@ trains cannot collide.
 
 ## Installing and updating
 
-Download `app-debug.apk` from the
+Download `tanoshi-mobile-server-release-<yyyy-MM-dd>.apk` from the
 [latest release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest)
 (or a CI artifact), or build it yourself. Then either:
 
 ```bash
-adb install -r android/app/build/outputs/apk/debug/app-debug.apk
+adb install -r android/app/build/outputs/apk/debug/tanoshi-mobile-server-release-*.apk
 ```
 
 or copy the APK to the phone, open it, and allow "install unknown apps" for
 the file manager/browser when Android asks.
+
+The APK name carries the build date: CI uses the UTC build date, local builds
+use the local date. Releases from 0.3.0 onward use
+`tanoshi-mobile-server-release-<date>.apk`; the 0.1.0 and 0.2.0 release assets
+were called `app-debug.apk` and are still valid downloads.
 
 The app is **arm64-v8a only**. It will not install on 32-bit-only or x86
 devices; the package manager reports a missing native library / incompatible
@@ -247,17 +272,17 @@ ABI.
   package installer; the system asks you to confirm. The install stops the app
   (and the server), so reopen Tanoshi and start the server afterwards. See
   [In-app updates](#in-app-updates).
-- **Manual:** download `app-debug.apk` from the latest release and install it
-  over the app, or use `adb install -r app-debug.apk`. Android accepts the
-  update only because every release is signed with the shared key
-  ([Signing](#signing)).
-- **From 0.1.0:** 0.1.0 was signed with a throwaway CI debug key, so 0.2.0
-  will **not** install over it ("app not installed" / signature mismatch).
-  Uninstall 0.1.0 once before installing 0.2.0. Uninstalling deletes the app's
-  private data (library, accounts, downloads) — copy `files/tanoshi/` out
-  first if you need it (see [Storage layout](#storage-layout)). This is a
-  one-time step: every later release shares the committed signing key and
-  updates in place.
+- **Manual:** download `tanoshi-mobile-server-release-<date>.apk` from the
+  latest release and install it over the app, or use
+  `adb install -r <downloaded.apk>`. Android accepts the update only because
+  every release is signed with the shared key ([Signing](#signing)).
+- **From 0.1.0:** 0.1.0 was signed with a throwaway CI debug key, so 0.2.0 or
+  later will **not** install over it ("app not installed" / signature
+  mismatch). Uninstall 0.1.0 once before installing a current release.
+  Uninstalling deletes the app's private data (library, accounts, downloads)
+  — copy `files/tanoshi/` out first if you need it (see
+  [Storage layout](#storage-layout)). This is a one-time step: every later
+  release shares the committed signing key and updates in place.
 
 ---
 
@@ -277,6 +302,10 @@ ABI.
 3. **Open the web UI** — tap **Open in app** for the embedded WebView or
    **Open in browser** to use your normal browser at
    `http://127.0.0.1:<port>`. Log in with the account from step 2.
+   To open it on another device on the same Wi-Fi, enable **Expose on LAN** in
+   Settings, restart the server, then scan the
+   [Share on your network QR code](#sharing-on-your-network-qr) from the
+   Server screen.
 4. **Install sources / configure** in the web UI like any other Tanoshi
    server. The nine bundled extensions are already present.
 
@@ -293,7 +322,7 @@ The app has three screens plus an embedded browser:
 
 | Screen | What it does |
 | --- | --- |
-| **Server** | Server state (`STOPPED` / `STARTING` / `RUNNING` / `STOPPING` / `ERROR`), PID, port, bind address (`127.0.0.1` or `0.0.0.0`), uptime, Start/Stop, the local URL, **Open in browser** and **Open in app**. The first-run admin dialog appears here. |
+| **Server** | Server state (`STOPPED` / `STARTING` / `RUNNING` / `STOPPING` / `ERROR`), PID, port, bind address (`127.0.0.1` or `0.0.0.0`), uptime, Start/Stop, the local URL, **Open in browser**, **Open in app**, and (when LAN-exposed) the **Share on your network** QR card. The first-run admin dialog appears here. |
 | **Logs** | Live server stdout/stderr with timestamps and stream colouring; auto-scroll toggle; copy-all and clear. `server.log` in the data directory mirrors the same output. |
 | **Settings** | Appearance (themes), port, "Expose on LAN", raw `config.yml` editor, notification/battery permissions, in-app updates, and the storage paths. |
 | **Browser** | WebView pointed at the local server (JavaScript and DOM storage enabled) with Back and Reload buttons; the catalogue auto-loads the next page as you scroll. The system back button exits the WebView before leaving the app. |
@@ -309,6 +338,37 @@ shown — keep the app icon/battery settings in mind when troubleshooting.
 
 The **Settings** screen also holds the app-only [Appearance](#themes) theme
 picker and the [Updates](#in-app-updates) section; both are described below.
+
+---
+
+## Sharing on your network (QR)
+
+When the server is **running** and bound to `0.0.0.0` — i.e. **Expose on LAN**
+is enabled in Settings *and* the server was restarted after enabling it — the
+Server screen shows a **Share on your network** card:
+
+- a QR code encoding `http://<host-ipv4>:<port>`, generated with ZXing (pure
+  Java, no native code) off the main thread;
+- the host `ip:port` and the full URL below it, with a copy button;
+- a warning that this only works on the same Wi-Fi/Ethernet network and that
+  the web UI uses plain HTTP.
+
+Scanning the code with another device on the same network opens the Tanoshi
+web UI directly in that device's browser. The app uses the first IPv4 address
+of the active network when `ConnectivityManager` reports it as Wi-Fi or
+Ethernet, and otherwise falls back to enumerating network interfaces —
+always skipping loopback and link-local (`169.254.x.x`) addresses. The address
+is re-resolved whenever the screen resumes, so it follows Wi-Fi changes.
+
+If the card cannot show a QR code it explains what is missing instead: enable
+Expose on LAN, start the server, restart the server to apply a bind-address
+change, or connect to Wi-Fi/Ethernet. The card is informational — it never
+changes the bind address itself.
+
+**Security:** the other device reaches this server over your LAN in plain HTTP,
+so anyone on that network who knows the address can reach the login page. Only
+share on a network you trust, keep a strong admin password, and turn Expose on
+LAN off when you don't need it — see [Security notes](#security-notes).
 
 ---
 
@@ -356,7 +416,7 @@ its own theme.
 button. Tapping it asks this repository's GitHub API for releases, considers
 only published (non-draft, non-prerelease) tags starting with `android-v`, and
 compares them numerically with the installed version (debug builds carry a
-`-debug` version suffix such as `0.2.0-debug`; the updater strips it before
+`-debug` version suffix such as `0.3.0-debug`; the updater strips it before
 comparing).
 
 When a newer release exists the section shows its version, tag, a release-notes
@@ -381,6 +441,11 @@ Requirements and limitations:
   size is checked, and the SHA-256 is verified when the GitHub release asset
   exposes a digest. Downloads land in the app cache and stale ones are cleared
   first.
+- **Asset naming.** 0.3.0 releases publish
+  `tanoshi-mobile-server-release-<date>.apk`; the updater prefers asset names
+  starting with `tanoshi-mobile-server`, accepts any other `.apk` asset as a
+  fallback, and still understands the legacy `app-debug.apk` name used by
+  0.1.0/0.2.0 releases.
 - **The system installs it.** Tanoshi never installs anything silently: you
   approve each install in the system dialog, and Android stops the app (and
   therefore the server) while it is replaced — reopen Tanoshi and start the
@@ -546,10 +611,14 @@ The Settings screen controls the Android wrapper and the server's config:
 - **Updates** — the in-app updater ([In-app updates](#in-app-updates)).
 - **Port** — 1024–65535 (Android does not allow unprivileged apps to bind
   below 1024). The value is written to `config.yml` and remembered; the
-  server must be restarted to listen on the new port.
+  server must be restarted to listen on the new port. Saving the port (or the
+  `config.yml`) works even before the server has ever been started: since
+  0.3.0 the app creates the data directory as part of the save.
 - **Expose on LAN** — when on, the next start uses `TANOSHI_BIND=0.0.0.0`, so
   other devices can reach `http://<phone-ip>:<port>`. The app warns that this
-  is plain HTTP with no TLS. The default is **off** (loopback only).
+  is plain HTTP with no TLS. The default is **off** (loopback only). Once it is
+  on and the server is running, the Server screen also shows the
+  [Share on your network QR card](#sharing-on-your-network-qr).
 - **`config.yml` editor** — shows the file as text, validates it on save and
   writes it atomically. Keep all paths **absolute** and inside the app's
   private directory; **`secret` must stay exactly 16 characters** because it
@@ -616,8 +685,9 @@ caveats" section of the native guide.
   "Expose on LAN". Prefer a VPN (WireGuard, Tailscale) over LAN exposure for
   remote access; a reverse proxy with TLS is the other option.
 - **LAN exposure is a login surface.** When enabled, any device on the same
-  network can reach the login page over plain HTTP. Use a strong password and
-  only turn it on when needed.
+  network can reach the login page over plain HTTP — the
+  [QR share card](#sharing-on-your-network-qr) just makes that URL easier to
+  open. Use a strong password and only turn it on when needed.
 - **No default account.** No `admin`/`tanoshi123`-style credentials are baked
   in. Register the administrator immediately on first run; before the first
   account exists, whoever reaches the port could register it.
@@ -653,7 +723,8 @@ libraries (the server, libarchive and the nine plugins) and that the device is
 arm64:
 
 ```bash
-unzip -l app-debug.apk | grep 'lib/arm64-v8a'
+unzip -l android/app/build/outputs/apk/debug/tanoshi-mobile-server-release-*.apk \
+  | grep 'lib/arm64-v8a'
 adb shell getprop ro.product.cpu.abi     # expect arm64-v8a
 ```
 
@@ -663,6 +734,12 @@ Android will refuse to execute it there.
 **Port already in use.** Another app (Termux, a previous Tanoshi, a proxy) is
 on port 8080. Change the port in Settings or the `config.yml` editor, stop and
 start the server. Keep it ≥ 1024.
+
+**Saving the port or `config.yml` fails with `config.yml.tmp: open failed:
+ENOENT`.** This was a 0.2.0 and earlier bug when the server had never been
+started (the data directory did not exist yet). 0.3.0 creates the data
+directory and the parent of `config.yml` before writing, so update to 0.3.0 or
+later if you hit it.
 
 **Server starts and immediately stops / `ERROR` with an exit code.** Check the
 logs. Common causes: a `config.yml` with an invalid `secret` (the app repairs
@@ -678,7 +755,23 @@ rebuild — rebuild server + plugins together.
 **Cannot reach the server from another device on the LAN.** Enable "Expose on
 LAN", restart, and check the status card shows `0.0.0.0`. Make sure both
 devices are on the same network (guest Wi-Fi / AP isolation blocks this), and
-use `http://<phone-ip>:<port>`.
+use `http://<phone-ip>:<port>` — or scan the
+[Share on your network QR code](#sharing-on-your-network-qr).
+
+**The Share on your network card shows no QR code.** It needs all three: the
+server running, bound to `0.0.0.0` (Expose on LAN enabled *and* the server
+restarted afterwards), and a discoverable Wi-Fi/Ethernet IPv4 address. The
+card's text says which one is missing — connect to Wi-Fi/Ethernet, start or
+restart the server, or enable Expose on LAN. Guest Wi-Fi / client-isolation
+networks will not let the other device reach the phone even when a QR code is
+shown.
+
+**The shared QR code does not scan or the other device cannot open the URL.**
+Use a non-guest Wi-Fi/Ethernet network that allows client-to-client traffic,
+raise the screen brightness, and make sure the phone's hotspot/client
+isolation is not blocking the connection. The QR encodes a plain
+`http://<ipv4>:<port>` URL; a device on a different network (mobile data,
+another VLAN) cannot reach it.
 
 **"Check for updates" fails.** The app queries GitHub's public API without a
 token. Temporary network problems and GitHub API rate limits both fail this
@@ -753,7 +846,9 @@ and `allowBackup` is off. Copy the `tanoshi/` folder out first (see
 | `tanoshi-lib` (plugin ABI) | 0.38.0 (`LIB_VERSION`) |
 | libarchive | 3.8.11 (custom minimal build; `compress-tools` 0.16.1 requires ≥ 3.2.0) |
 | Embedded web UI | Package-3 wasm dist (`native/web-dist/`), built with the infinite-scroll patch |
-| App version | 0.2.0 (`versionName`); `versionCode` 2 in local builds, 200 for the `android-v0.2.0` tag |
+| QR sharing | ZXing core 3.5.3 (pure Java) |
+| App version | 0.3.0 (`versionName`); `versionCode` 3 in local builds, 300 for the `android-v0.3.0` tag |
+| APK filename | `tanoshi-mobile-server-release-<yyyy-MM-dd>.apk` (0.3.0+; 0.1.0/0.2.0 used `app-debug.apk`) |
 | Signing key | `android/keystore/tanoshi-signing.jks` (alias `tanoshi`), shared by all releases |
 | Android NDK (native rebuilds only) | r26+ |
 

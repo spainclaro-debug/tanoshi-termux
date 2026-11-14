@@ -132,6 +132,11 @@ object ConfigManager {
         }
         val file = AppPaths.config(context)
         return runCatching {
+            // The settings screen can save a port before the server has ever
+            // been started, so the data directory (and with it config.yml the
+            // user is editing) may not exist yet. Without this, writing
+            // config.yml.tmp failed with ENOENT.
+            AppPaths.ensureDirectories(context)
             if (!file.exists()) {
                 writeAtomically(file, defaultConfigText(context, port))
             } else {
@@ -187,6 +192,9 @@ object ConfigManager {
         "\"" + path.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
     private fun writeAtomically(target: File, text: String) {
+        // Defensive: every caller writes below AppPaths.home(), but a missing
+        // parent directory must never turn a settings save into an ENOENT.
+        target.parentFile?.mkdirs()
         val tmp = File(target.parentFile, "${target.name}.tmp")
         tmp.writeText(text)
         if (!tmp.renameTo(target)) {

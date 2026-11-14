@@ -172,4 +172,18 @@
     <string name="settings_updates_install_blocked">Android does not allow this app to install updates. Allow installing unknown apps for Tanoshi, then try again.</string>
     <string name="settings_updates_allow_installs">Allow app installs</string>
     <string name="settings_updates_download_failed">Could not download the update: %1$s</string>
+    <!-- LAN share QR card -->
+    <string name="server_share_title">Share on your network</string>
+    <string name="server_share_description">Scan this QR code from another device on the same Wi-Fi network to open the Tanoshi web UI.</string>
+    <string name="server_share_qr_description">QR code for the Tanoshi web UI network address</string>
+    <string name="server_share_qr_failed">Could not create the QR code. Share the address below instead.</string>
+    <string name="server_share_generating">Preparing the QR code…</string>
+    <string name="server_share_address_label">On the other device, open</string>
+    <string name="server_share_copy">Copy network URL</string>
+    <string name="server_share_copied">Network URL copied to the clipboard</string>
+    <string name="server_share_warning">This works only on the same Wi-Fi or Ethernet network, and the web UI uses plain HTTP. Only share it on a network you trust.</string>
+    <string name="server_share_enable_lan">Enable Expose on LAN in Settings to share the web UI on your network.</string>
+    <string name="server_share_start_server">Start the server to share it on your network.</string>
+    <string name="server_share_restart_server">Restart the server to apply the LAN bind address, then share it.</string>
+    <string name="server_share_no_address">No Wi-Fi or Ethernet address found. Connect this device to a network and try again.</string>
 </resources>

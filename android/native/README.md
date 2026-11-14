@@ -320,12 +320,14 @@ readelf -lW libtanoshi.so | grep LOAD
 grep -c -a "catalogue-scroll-sentinel" libtanoshi.so   # expect 1
 ```
 
-And on the built APK:
+And on the built APK (since 0.3.0 the output is
+`android/app/build/outputs/apk/debug/tanoshi-mobile-server-release-<date>.apk`):
 
 ```bash
-unzip -l app-debug.apk | grep 'lib/arm64-v8a'
+APK=android/app/build/outputs/apk/debug/tanoshi-mobile-server-release-*.apk
+unzip -l $APK | grep 'lib/arm64-v8a'
 #   all eleven .so files must be present
-zipalign -c -P 16 4 app-debug.apk   # Android 15+ 16 KB alignment check
+zipalign -c -P 16 4 $APK   # Android 15+ 16 KB alignment check
 ```
 
 If either alignment check reports `0x1000`, rebuild with
@@ -351,7 +353,8 @@ output of this pipeline, built on an x86_64 Linux host with:
 
 `sync_prebuilt.sh` does not rebuild anything — it only copies what the other
 scripts produced, so `git diff` after a rebuild shows exactly which binaries
-changed.
+changed. The app-side 0.3.0 release does not change `libtanoshi.so` or the web
+UI: it reuses these binaries and only updates the Android app/APK packaging.
 
 ### Reproducibility caveats
 

@@ -76,25 +76,27 @@ jobs:
           fi
           echo "name=$NAME" >> "$GITHUB_OUTPUT"
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
-          echo "Building version '${NAME:-0.2.0 (default)}' code '${CODE:-2 (default)}'"
+          echo "apk_date=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+          echo "Building version '${NAME:-0.3.0 (default)}' code '${CODE:-3 (default)}'"
 
       - name: Build debug APK
         working-directory: android
         env:
           APP_VERSION_NAME: ${{ steps.version.outputs.name }}
           APP_VERSION_CODE: ${{ steps.version.outputs.code }}
+          APK_DATE: ${{ steps.version.outputs.apk_date }}
         run: |
           chmod +x ./gradlew
-          NAME="${APP_VERSION_NAME:-0.2.0}"
-          CODE="${APP_VERSION_CODE:-2}"
+          NAME="${APP_VERSION_NAME:-0.3.0}"
+          CODE="${APP_VERSION_CODE:-3}"
           ./gradlew :app:assembleDebug --no-daemon --stacktrace \
-            -PappVersionName="$NAME" -PappVersionCode="$CODE"
+            -PappVersionName="$NAME" -PappVersionCode="$CODE" -PapkDate="$APK_DATE"
 
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
           name: tanoshi-android-debug-apk
-          path: android/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/tanoshi-mobile-server-release-*.apk
           if-no-files-found: error
           retention-days: 30
 
@@ -107,9 +109,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ github.ref_name }}
         run: |
-          NOTES="Standalone arm64-v8a Android app that bundles and runs the Tanoshi server (no Termux). Highlights of 0.2.0: catalogue infinite scroll in the embedded web UI, in-app updates (Settings -> Updates), selectable Dark/Light/Nord/Catppuccin themes, and a stable sideload signing key so updates install over older releases. Install: download app-debug.apk and sideload it, then open the app, start the server and register the first admin account. Upgrading from 0.1.0 requires a one-time uninstall (0.1.0 was signed with a different key). See android/CHANGELOG.md and android/README.md."
+          NOTES="Standalone arm64-v8a Android app that bundles and runs the Tanoshi server (no Termux). Highlights of 0.3.0: share the server with other devices via a QR code on the Server screen (Expose on LAN), fixed saving the port before the first server start, plus the 0.2.0 features (catalogue infinite scroll, in-app updates, Dark/Light/Nord/Catppuccin themes, stable signing). Install: download tanoshi-mobile-server-release-<date>.apk and sideload it, then open the app, start the server and register the first admin account. Upgrading from 0.1.0 requires a one-time uninstall (0.1.0 was signed with a different key). See android/CHANGELOG.md and android/README.md."
           gh release create "$TAG" \
-            android/app/build/outputs/apk/debug/app-debug.apk \
+            android/app/build/outputs/apk/debug/tanoshi-mobile-server-release-*.apk \
             --repo "$GITHUB_REPOSITORY" \
             --title "Tanoshi Android $TAG" \
             --notes "$NOTES"

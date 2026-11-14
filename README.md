@@ -16,9 +16,13 @@ the same Tanoshi server and the same nine extensions as a single sideloadable
 APK — no Termux, no shell — and runs the server from a foreground service with
 an in-app web UI.
 
-The current release is **0.2.0**, available from the
+The current release is **0.3.0**, available from the
 [latest release](https://github.com/spainclaro-debug/tanoshi-termux/releases/latest).
-It adds catalogue infinite scroll to the embedded web UI, an in-app updater
+It adds a **Share on your network** QR code on the Server screen (share the web
+UI with another device on the same Wi-Fi via Expose on LAN), fixes saving the
+port before the first server start, and publishes the sideload APK as
+`tanoshi-mobile-server-release-<yyyy-MM-dd>.apk` (UTC date in CI). It also
+includes the 0.2.0 features: catalogue infinite scroll, an in-app updater
 (**Settings → Updates**, backed by this repository's `android-v*` GitHub
 releases) and four selectable app themes (**Settings → Appearance**: Dark,
 Light, Nord, Catppuccin). All releases are signed with the same committed key
@@ -30,8 +34,8 @@ See [`android/CHANGELOG.md`](android/CHANGELOG.md) for details.
   first admin on first run.
 - **arm64 only:** Android 8.0+ (API 26) on an arm64 / aarch64 device.
 - **Docs:** [`android/README.md`](android/README.md) covers building,
-  sideloading, updating, first-run onboarding, themes, settings and
-  troubleshooting; the native rebuild pipeline is in
+  sideloading, updating, first-run onboarding, themes, QR sharing, settings
+  and troubleshooting; the native rebuild pipeline is in
   [`android/native/README.md`](android/native/README.md).
 
 The Termux package documented below and the APK project in `android/` are two
